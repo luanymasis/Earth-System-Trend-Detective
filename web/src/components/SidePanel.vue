@@ -1,5 +1,8 @@
 <script setup>
 import { useAppStore } from '../stores/app.js'
+import EventPanel from './event/EventPanel.vue'
+import NewsPanel from './news/NewsPanel.vue'
+import SimPanel from './sim/SimPanel.vue'
 const app = useAppStore()
 const TABS = [{ id: 'event', l: 'Evento' }, { id: 'news', l: 'Noticias' }, { id: 'sim', l: 'Simular' }]
 </script>
@@ -11,7 +14,9 @@ const TABS = [{ id: 'event', l: 'Evento' }, { id: 'news', l: 'Noticias' }, { id:
               aria-controls="pane" @click="app.setTab(t.id)">{{ t.l }}</button>
     </div>
     <div class="pane" id="pane" role="tabpanel" :aria-labelledby="`tab-${app.tab}`">
-      <p class="empty">Próximamente.</p>
+      <EventPanel v-if="app.tab === 'event'" />
+      <NewsPanel v-else-if="app.tab === 'news'" />
+      <SimPanel v-else />
     </div>
     <div class="foot">
       Fuente: {{ app.meta?.product ?? '—' }}{{ app.synthetic ? ' · Valores simulados para la demo; los eventos son reales.' : '' }}

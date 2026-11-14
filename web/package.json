@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/*.test.js",
-    "mock": "node scripts/mock-verde.mjs"
+    "mock": "node scripts/mock-verde.mjs",
+    "check-links": "node scripts/check-links.mjs"
   },
   "dependencies": {
     "d3": "^7.9.2",

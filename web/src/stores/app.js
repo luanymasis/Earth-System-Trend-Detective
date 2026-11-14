@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { markRaw } from 'vue'
 import { loadManifest, loadEventSeries, loadLayer, peekLayer, layerDescs } from '../lib/loader.js'
 import { km } from '../lib/names.js'
+import { analyzeEvent } from '../lib/event.js'
+import { empirical } from '../lib/sim.js'
 
 // Estado global de Pulso Verde (Fase 3 §6).
 export const useAppStore = defineStore('app', {
@@ -32,7 +34,19 @@ export const useAppStore = defineStore('app', {
     te () { return this.ev ? this.ev.year - this.years[0] : 0 },
     /** Línea base del globo: los 3 años previos al evento seleccionado (baseWin del prototipo). */
     baseWin () { const te = this.te; return [Math.max(0, te - 3), Math.max(0, te - 1)] },
-    year () { return this.years[0] + Math.round(this.yearF) }
+    year () { return this.years[0] + Math.round(this.yearF) },
+    /** Análisis de cada evento con series cargadas: { id: { te, pre, R } } */
+    analyses () {
+      const out = {}
+      for (const ev of this.events) { const s = this.series[ev.id]; if (s) out[ev.id] = analyzeEvent(ev, s.series, this.variables, this.years[0]) }
+      return out
+    },
+    A () { return this.ev ? this.analyses[this.ev.id] ?? null : null },
+    /** Relaciones aprendidas para Simular (cuando ya están todas las series). */
+    emp () {
+      const list = this.events.filter(e => this.analyses[e.id]).map(ev => ({ ev, A: this.analyses[ev.id] }))
+      return list.length === this.events.length && list.length ? empirical(list, this.variables) : null
+    }
   },
   actions: {
     async init () {
