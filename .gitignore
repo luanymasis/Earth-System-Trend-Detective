@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Pulso Terrestre ---
+node_modules/
+web/dist/
+pipeline/raw/
+pipeline/*.nc
+# Datos generados por pipeline/mock.py o export.py (ver DECISIONS.md)
+web/public/data/
