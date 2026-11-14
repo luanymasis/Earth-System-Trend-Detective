@@ -38,7 +38,7 @@ export const NEWS = {
   ],
   ethiopia: [
     { title:'Etiopía plantó 350 millones de árboles en un día', src:'World Economic Forum', date:'jul 2019', lang:'EN', url:'https://weforum.org/agenda/2019/07/ethiopia-has-planted-350-million-trees-in-a-day-to-tackle-deforestation-and-its-not-stopping-there', sum:'Primera gran jornada del programa Legado Verde para frenar la deforestación (cifras oficiales).' },
-    { title:'Legado Verde: Etiopía apunta a 5.000 millones de árboles este año', src:'Africanews', date:'13 may 2020', lang:'EN', url:'https://www.africanews.com/2020/05/13/green-legacy-initiative-ethiopia-targets-5-billion-trees-this-year', sum:'El gobierno amplió la meta del programa en su segundo año.' },
+    { title:'Legado Verde: Etiopía apunta a 5.000 millones de árboles este año', src:'Africanews', date:'13 may 2020', lang:'EN', url:'https://www.africanews.com/2020/05/13/green-legacy-initiative-ethiopia-targets-5-billion-trees-this-year/', sum:'El gobierno amplió la meta del programa en su segundo año.' },
     { title:'Etiopía planta 700 millones de plántulas en un día', src:'Africanews', date:'1 ago 2025', lang:'EN', url:'https://www.africanews.com/2025/08/01/ethiopians-plant-700-million-tree-seedlings-in-a-day-in-reforestation-campaign/', sum:'Nueva jornada récord de plantación dentro del Legado Verde (cifras oficiales).' }
   ]
 }

@@ -8,7 +8,7 @@ const UA = 'Mozilla/5.0 (link-check)'
 async function check (url) {
   for (const method of ['HEAD', 'GET']) {
     try {
-      const r = await fetch(url, { method, redirect: 'follow', headers: { 'user-agent': UA }, signal: AbortSignal.timeout(15000) })
+      const r = await fetch(url, { method, redirect: 'follow', headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml,*/*;q=0.8', 'accept-language': 'es,en;q=0.8' }, signal: AbortSignal.timeout(15000) })
       if (r.ok || method === 'GET') return r.status
     } catch (err) { if (method === 'GET') return `error: ${err.cause?.code || err.name}` }
   }

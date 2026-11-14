@@ -1,50 +1,45 @@
-# Pulso Terrestre
+# Pulso Verde
 
-Globo interactivo para ver **qué cambia, dónde, cuánto y si el cambio es estadísticamente significativo** en variables de misiones y modelos de ciencias de la Tierra de la NASA (NASA Space Apps Challenge, *Earth System Trend Detective*).
+Herramienta para evaluar **eventos de deforestación, incendio y reforestación**: cómo se alteraron la vegetación, la temperatura de superficie, la humedad del suelo y la lluvia respecto a una región de comparación, si el cambio es estadísticamente claro y **cuánto tardó (o tardaría) cada variable en restaurarse** (NASA Space Apps Challenge, *Earth System Trend Detective*).
 
-> Estado: **H1 (esqueleto + datos simulados)**. La especificación completa está en `PLAN_PULSO_TERRESTRE.md`.
+> Estado: **Fase 3, H4–H5** (frontend con datos simulados + lógica con tests). Especificación: [`docs/fase3/PLAN_FASE3_PULSO_VERDE.md`](docs/fase3/PLAN_FASE3_PULSO_VERDE.md). Decisiones no cubiertas por el plan: [`DECISIONS.md`](DECISIONS.md). El explorador de tendencias de las fases 1–2 vive en la rama `legacy-pulso-terrestre`.
+
+## Cómo correrlo
+
+Requisito: Node 20+.
+
+```bash
+cd web
+npm install
+npm run mock        # datos simulados con el contrato de Fase 3 → web/public/data/ (~2 s)
+npm run dev         # http://localhost:5173
+npm test            # event.js, sim.js y stats.js contra docs/fase3/eventos_sinteticos_fixture.json
+npm run check-links # que los enlaces de noticias respondan (antes del deploy)
+```
+
+Con datos simulados la interfaz muestra «Demo · datos simulados». Enlaces directos: `?ev=borneo&var=precip&tab=news`.
 
 ## Estructura
 
 ```
-pipeline/   Python: datos → cubo anual a 2° → estadística → archivos para la web
-web/        Vue 3 + Vite + Pinia: el globo y los paneles (sitio estático)
+docs/fase3/   plan, prototipo de referencia y fixture de tests
+web/          Vue 3 + Vite + Pinia (sitio estático)
+  scripts/    mock-verde.mjs (motor sintético del prototipo), check-links.mjs
+  src/lib/    event.js (análisis de eventos), sim.js (Simular), stats.js, loader.js
+  src/globe/  renderer.js, field.js (capas: teselas 0.1° y grilla global 1°)
+pipeline/     Python de la fase 1 (pendiente de reemplazo en H6: AppEEARS, Giovanni, CDO)
 ```
-
-## Cómo correrlo
-
-Requisitos: Python 3.11+ y Node 20+.
-
-```bash
-# 1. Datos simulados (mismo formato que el pipeline real), ~5 s
-pip install -r pipeline/requirements.txt
-python pipeline/mock.py            # escribe web/public/data/
-
-# 2. Web
-cd web
-npm install
-npm run dev                        # http://localhost:5173
-```
-
-Tests de estadística: `python -m pytest pipeline/tests`.
-
-Con datos simulados la interfaz muestra el aviso «Demo · datos simulados».
 
 ## Contrato de datos (`web/public/data/`)
 
 | Archivo | Contenido |
 |---|---|
-| `manifest.json` | grilla, años, serie de temperatura global (`gt`), metadata de cada variable |
-| `{id}.bin` | Int16 little-endian, orden `[celda][año]`, valor = `int*scale + offset`, faltante = −32768 |
-| `{id}_stats.bin` | Float32 little-endian, 6 bloques de `nx*ny`: `sen_per_decade, p_trend, sig_trend, sens_b, p_sens, sig_sens` |
-| `discover.json` | `{ "changes": [...], "contrasts": [...] }` (se llena en H5) |
+| `manifest.json` | años, variables (unidades, paleta, escala, fuente), eventos (caja, comparación, teselas), capas globales |
+| `events/{id}.json` | series anuales del evento y de la comparación por variable (`null` = sin dato), estaciones |
+| `tiles/*.bin`, `global/*.bin` | Int16 little-endian, orden `[año][fila][columna]` (fila 0 al norte), valor = `int*scale + offset`, faltante = −32768 |
 
-La celda `c = i*nx + j`, con `i = 0` en el norte (`lat0 = 89`) y `j = 0` en `lon0 = −179`.
+Detalle en el plan, §4.
 
 ## Método
 
-Pendiente de Sen (Sen 1968), Mann-Kendall (Mann 1945; Kendall 1975) con pre-blanqueo TFPW (Yue et al. 2002), corrección FDR de Benjamini & Hochberg (1995; ver Wilks 2016), tiempo de detección (Weatherhead et al. 1998) y *pattern scaling* (Tebaldi & Arblaster 2014).
-
-## Datasets de NASA
-
-Ver `pipeline/config.py`. Los short names se verifican en [Earthdata Search](https://search.earthdata.nasa.gov) antes de descargar (H4); los que aún no están verificados llevan `TODO(verificar)`.
+Para cada variable se compara el evento con su región de comparación (diferencia, o % en la precipitación) respecto a lo normal antes del evento. El cambio es claro si supera 2 desviaciones de la línea base y la prueba de Welch (1947) da p < 0,05, o si dura al menos dos años seguidos. La restauración es el primer momento en que vuelve a la franja normal durante dos años; si aún no ha vuelto, se estima con la tendencia de los últimos años. Asociación, no prueba de causa.
