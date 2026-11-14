@@ -1,6 +1,6 @@
 <script setup>
 import { useAppStore } from '../stores/app.js'
-import { fmtLL } from '../lib/format.js'
+import ZonePanel from './zone/ZonePanel.vue'
 const app = useAppStore()
 </script>
 
@@ -12,16 +12,8 @@ const app = useAppStore()
     </div>
     <div class="pane" id="pane" role="tabpanel" :aria-labelledby="app.tab === 'zone' ? 'tab-zone' : 'tab-disc'">
       <template v-if="app.tab === 'zone'">
-        <div v-if="!app.zone" class="empty">Toca cualquier zona del globo para ver qué está cambiando ahí.</div>
-        <template v-else>
-          <div class="zone">
-            <span class="k">{{ app.meta?.short }}</span>
-            <h2>{{ app.zone.name }}</h2>
-            <p class="empty coords">{{ fmtLL(app.zone.lat, app.zone.lon) }}</p>
-          </div>
-          <!-- TODO(H3): titular, confianza, datos, proyección, ¿cuándo lo sabremos?, contraste, cambia junto con -->
-          <p class="empty">El análisis de la zona llega en el siguiente hito.</p>
-        </template>
+        <!-- En el modo ¿Y si se calienta?, WhatIfPanel reemplaza a este panel en H6 -->
+        <ZonePanel />
       </template>
       <template v-else>
         <div>
@@ -44,8 +36,6 @@ const app = useAppStore()
 .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--brown)}
 .pane{padding:16px;overflow:auto;display:flex;flex-direction:column;gap:14px;flex:1}
 .dtitle{font-size:19px;margin-top:2px}
-.zone h2{font-size:21px;line-height:1.2;margin-top:2px}
-.coords{margin:2px 0 0}
 .foot{font-size:11px;color:var(--muted);padding:10px 16px;border-top:1px solid var(--line)}
 @media (max-width:960px){ .side{border-left:0;border-top:1px solid var(--line)} }
 </style>

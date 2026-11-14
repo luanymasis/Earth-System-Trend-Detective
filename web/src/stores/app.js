@@ -11,6 +11,7 @@ export const useAppStore = defineStore('app', {
     loading: false,
     variableId: null,
     variable: null, // datos cargados de la variable activa (markRaw: arrays grandes)
+    vars: {}, // todas las variables ya cargadas, por id (para "Cambia junto con")
     mode: 'compare', // 'compare' | 'trend' | 'forecast' | 'whatif'
     yearA: null, // índice de año (0 = primer año)
     yearB: 0,
@@ -41,16 +42,26 @@ export const useAppStore = defineStore('app', {
         this.yearA = this.yearAf = this.nyears - 1
         if (!this.zone) this.zone = { lat: 10.5, lon: -85.4, name: 'Guanacaste, Costa Rica' }
         await this.setVariable(this.manifest.variables[0].id)
+        this.loadAll()
       } catch (err) {
         this.loadError = err.message
       }
     },
+    /** Carga en segundo plano el resto de variables (el panel de zona las compara). */
+    async loadAll () {
+      for (const m of this.manifest.variables) {
+        if (this.vars[m.id]) continue
+        try { this.keep(await loadVariable(m.id)) } catch { /* se reintenta al elegirla */ }
+      }
+    },
+    keep (v) { if (!this.vars[v.meta.id]) this.vars = { ...this.vars, [v.meta.id]: markRaw(v) } },
     async setVariable (id) {
       this.variableId = id
       this.otherZone = null
       this.loading = true
       try {
         const v = await loadVariable(id)
+        this.keep(v)
         if (this.variableId === id) this.variable = markRaw(v)
       } catch (err) {
         this.loadError = err.message
