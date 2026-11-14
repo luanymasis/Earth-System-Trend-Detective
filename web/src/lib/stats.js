@@ -1,4 +1,4 @@
-// Estadística de tendencias en el cliente (PLAN §4.3, §5). Porta `sen`, `mk`, `trendStats`
+// Estadística en el cliente. Tendencias (fase 1): porta `sen`, `mk`, `trendStats`
 // y `threshold` del prototipo; mismas fórmulas que pipeline/stats.py.
 // Mann 1945 · Kendall 1975 · Sen 1968 · Yue et al. 2002 (TFPW) · Benjamini & Hochberg 1995.
 
@@ -75,4 +75,90 @@ export function chanceText (p) {
   if (p < 0.001) return '< 1 en 1,000'
   if (p < 0.1) return `1 en ${Math.round(1 / p)}`
   return `${Math.round(p * 100)} %`
+}
+
+// ---- Fase 3: comparación de períodos (porta lgamma, betacf, ibeta, tPval y welch del prototipo) ----
+// Welch 1947. Los años en null (sin dato) se ignoran.
+
+export const isNum = x => x != null && Number.isFinite(x)
+
+/** Media de y[a..b] ignorando nulls (null si no hay ningún valor). */
+export function mean (y, a, b) {
+  let s = 0, k = 0
+  for (let t = a; t <= b; t++) if (isNum(y[t])) { s += y[t]; k++ }
+  return k ? s / k : null
+}
+/** Desviación estándar muestral de y[a..b] ignorando nulls (null si no hay valores). */
+export function sdv (y, a, b) {
+  const m = mean(y, a, b)
+  if (m === null) return null
+  let s = 0, k = 0
+  for (let t = a; t <= b; t++) if (isNum(y[t])) { s += (y[t] - m) ** 2; k++ }
+  return Math.sqrt(s / Math.max(1, k - 1))
+}
+/** Número de valores válidos en y[a..b]. */
+export const count = (y, a, b) => { let k = 0; for (let t = a; t <= b; t++) if (isNum(y[t])) k++; return k }
+
+export function lgamma (z) {
+  const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7]
+  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z)
+  z -= 1
+  let x = c[0]
+  for (let i = 1; i < 9; i++) x += c[i] / (z + i)
+  const t = z + 7.5
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
+}
+function betacf (a, b, x) {
+  const FP = 1e-300
+  const qab = a + b, qap = a + 1, qam = a - 1
+  let c = 1, d = 1 - qab * x / qap
+  if (Math.abs(d) < FP) d = FP
+  d = 1 / d
+  let h = d
+  for (let m = 1; m <= 200; m++) {
+    const m2 = 2 * m
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+    d = 1 + aa * d; if (Math.abs(d) < FP) d = FP
+    c = 1 + aa / c; if (Math.abs(c) < FP) c = FP
+    d = 1 / d; h *= d * c
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+    d = 1 + aa * d; if (Math.abs(d) < FP) d = FP
+    c = 1 + aa / c; if (Math.abs(c) < FP) c = FP
+    d = 1 / d
+    const del = d * c
+    h *= del
+    if (Math.abs(del - 1) < 3e-12) break
+  }
+  return h
+}
+/** Beta incompleta regularizada I_x(a, b). */
+export function ibeta (a, b, x) {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x))
+  return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b
+}
+/** p bilateral de una t de Student con df grados de libertad. */
+export const tPval = (t, df) => ibeta(df / 2, 0.5, df / (df + t * t))
+
+/**
+ * Welch: ¿la media de y[b0..b1] difiere de la de y[a0..a1]?
+ * Devuelve { mA, mB, d, p } o null si algún período no tiene datos.
+ */
+export function welch (y, a0, a1, b0, b1) {
+  const A = [], B = []
+  for (let t = a0; t <= a1; t++) if (isNum(y[t])) A.push(y[t])
+  for (let t = b0; t <= b1; t++) if (isNum(y[t])) B.push(y[t])
+  const nA = A.length, nB = B.length
+  if (!nA || !nB) return null
+  const mA = A.reduce((s, x) => s + x, 0) / nA, mB = B.reduce((s, x) => s + x, 0) / nB
+  let vA = 0, vB = 0
+  for (const x of A) vA += (x - mA) ** 2
+  for (const x of B) vB += (x - mB) ** 2
+  vA /= Math.max(1, nA - 1); vB /= Math.max(1, nB - 1)
+  const se2 = vA / nA + vB / nB, d = mB - mA
+  if (se2 <= 1e-12) return { mA, mB, d, p: Math.abs(d) > 1e-9 ? 0 : 1 }
+  const tt = d / Math.sqrt(se2)
+  const df = se2 * se2 / ((vA / nA) ** 2 / Math.max(1, nA - 1) + (vB / nB) ** 2 / Math.max(1, nB - 1))
+  return { mA, mB, d, p: tPval(Math.abs(tt), Math.max(1, df)) }
 }
