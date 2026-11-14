@@ -21,6 +21,6 @@ onMounted(() => app.init())
 
 <style scoped>
 .app{height:100%;display:grid;grid-template-rows:auto 1fr}
-.main{display:grid;grid-template-columns:minmax(0,1fr) 410px;min-height:0}
-@media (max-width:960px){ .app{height:auto} .main{grid-template-columns:minmax(0,1fr)} }
+.main{display:grid;grid-template-columns:minmax(0,1fr) 430px;min-height:0}
+@media (max-width:980px){ .app{height:auto} .main{grid-template-columns:minmax(0,1fr)} }
 </style>

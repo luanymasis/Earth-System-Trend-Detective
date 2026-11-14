@@ -1,77 +1,75 @@
-// Lectura del contrato de datos del pipeline (PLAN §4.6).
-// manifest.json se carga una vez; cada variable se carga bajo demanda y se guarda en caché.
+// Lectura del contrato de datos de Fase 3 (PLAN_FASE3 §4).
+// manifest.json se carga una vez; las series de cada evento, las teselas y las capas globales
+// se cargan bajo demanda y quedan en caché.
+import { createGridLayer } from '../globe/field.js'
 
 const BASE = `${import.meta.env.BASE_URL}data/`
 const MISSING = -32768
 
 let manifestPromise = null
-const variableCache = new Map()
+const cache = new Map() // ruta → Promise
+const ready = new Map() // ruta → valor ya cargado
 
 export function loadManifest () {
   if (!manifestPromise) {
     manifestPromise = fetch(`${BASE}manifest.json`).then(r => {
-      if (!r.ok) throw new Error(`No se encontró manifest.json (${r.status}). Corre "python pipeline/mock.py".`)
+      if (!r.ok) throw new Error(`No se encontró manifest.json (${r.status}). Corre "npm run mock" en web/.`)
       return r.json()
     }).catch(err => { manifestPromise = null; throw err })
   }
   return manifestPromise
 }
 
-async function fetchBuffer (name) {
-  const r = await fetch(BASE + name)
-  if (!r.ok) throw new Error(`No se pudo leer ${name} (${r.status})`)
-  return r.arrayBuffer()
+function once (path, load) {
+  if (!cache.has(path)) {
+    const p = load().then(v => { ready.set(path, v); return v })
+    p.catch(() => cache.delete(path))
+    cache.set(path, p)
+  }
+  return cache.get(path)
+}
+
+async function fetchOk (path) {
+  const r = await fetch(BASE + path)
+  if (!r.ok) throw new Error(`No se pudo leer ${path} (${r.status})`)
+  return r
+}
+
+/** events/{id}.json → { id, series: { var: { event, control, n_event, n_control } }, stations } */
+export const loadEventSeries = ev => once(ev.series, async () => (await fetchOk(ev.series)).json())
+
+/** Decodifica Int16 [año][fila][col] a Float32 (NaN = faltante). */
+function decode (buf, scale, offset, n) {
+  const ints = new Int16Array(buf) // little-endian en todas las plataformas web actuales
+  if (ints.length !== n) throw new Error(`Tamaño inesperado (${ints.length} ≠ ${n})`)
+  const out = new Float32Array(n)
+  for (let k = 0; k < n; k++) out[k] = ints[k] === MISSING ? NaN : ints[k] * scale + offset
+  return out
 }
 
 /**
- * Carga una variable.
- * Devuelve { meta, ncell, nyears, values, valid, stats }:
- * - values: Float32Array [cell*nyears + year] con valores reales (NaN = faltante)
- * - valid: Uint8Array por celda (1 si la celda tiene datos)
- * - stats: { sen_per_decade, p_trend, sig_trend, sens_b, p_sens, sig_sens } (Float32Array de ncell)
+ * Capa de datos (FieldSource). desc = { file, grid, scale, offset, wrap }.
  */
-export function loadVariable (id) {
-  if (variableCache.has(id)) return variableCache.get(id)
-  const p = (async () => {
-    const manifest = await loadManifest()
-    const meta = manifest.variables.find(v => v.id === id)
-    if (!meta) throw new Error(`Variable desconocida: ${id}`)
-    const { nx, ny } = manifest.grid
-    const ncell = nx * ny
-    const nyears = manifest.years[1] - manifest.years[0] + 1
-    const [raw, st] = await Promise.all([fetchBuffer(meta.data), fetchBuffer(meta.stats)])
-
-    const ints = new Int16Array(raw) // little-endian en todas las plataformas web actuales
-    if (ints.length !== ncell * nyears) throw new Error(`${meta.data}: tamaño inesperado`)
-    const values = new Float32Array(ints.length)
-    const valid = new Uint8Array(ncell)
-    for (let k = 0; k < ints.length; k++) {
-      const q = ints[k]
-      if (q === MISSING) values[k] = NaN
-      else { values[k] = q * meta.scale + meta.offset; valid[(k / nyears) | 0] = 1 }
-    }
-
-    const floats = new Float32Array(st)
-    const fields = manifest.stats_fields
-    if (floats.length !== ncell * fields.length) throw new Error(`${meta.stats}: tamaño inesperado`)
-    const stats = Object.fromEntries(fields.map((f, i) => [f, floats.subarray(i * ncell, (i + 1) * ncell)]))
-
-    return { meta, ncell, nyears, values, valid, stats }
-  })()
-  p.catch(() => variableCache.delete(id))
-  variableCache.set(id, p)
-  return p
+export function loadLayer (desc, nyears) {
+  return once(desc.file, async () => {
+    const buf = await (await fetchOk(desc.file)).arrayBuffer()
+    const { nx, ny } = desc.grid
+    return createGridLayer(desc.grid, decode(buf, desc.scale, desc.offset ?? 0, nyears * nx * ny), nyears, { wrap: !!desc.wrap })
+  })
 }
+/** La capa si ya terminó de cargar; si no, null. */
+export const peekLayer = desc => ready.get(desc.file) ?? null
 
-export function loadDiscover () {
-  return fetch(`${BASE}discover.json`).then(r => (r.ok ? r.json() : { changes: [], contrasts: [] }))
-}
-
-// ---- Geometría de la grilla ----
-export const latOf = (grid, i) => grid.lat0 - grid.res * i
-export const lonOf = (grid, j) => grid.lon0 + grid.res * j
-export function cellOf (grid, lat, lon) {
-  const i = Math.min(grid.ny - 1, Math.max(0, Math.floor((90 - lat) / grid.res)))
-  const j = ((Math.floor((lon + 180) / grid.res) % grid.nx) + grid.nx) % grid.nx
-  return i * grid.nx + j
+/** Descriptores de las capas de una variable para un evento: sus teselas y, si existe, la capa global. */
+export function layerDescs (manifest, varId, ev) {
+  const out = []
+  for (const t of ev?.tiles ?? []) {
+    const file = t.files?.[varId]
+    if (!file) continue
+    const enc = t.enc?.[varId] ?? { scale: 1, offset: 0 }
+    out.push({ file, grid: t.grid, scale: enc.scale, offset: enc.offset, wrap: false })
+  }
+  const g = manifest.global?.find(x => x.var === varId)
+  if (g) out.push({ file: g.file, grid: g.grid, scale: g.scale, offset: g.offset, wrap: g.grid.nx * g.grid.res >= 359.9 })
+  return out
 }

@@ -1,118 +1,113 @@
 import { defineStore } from 'pinia'
 import { markRaw } from 'vue'
-import { loadManifest, loadVariable } from '../lib/loader.js'
-import { km as kmBetween } from '../lib/names.js'
+import { loadManifest, loadEventSeries, loadLayer, peekLayer, layerDescs } from '../lib/loader.js'
+import { km } from '../lib/names.js'
 
-// Estado global (PLAN §7.7)
+// Estado global de Pulso Verde (Fase 3 §6).
 export const useAppStore = defineStore('app', {
   state: () => ({
     manifest: null,
     loadError: null,
-    loading: false,
-    variableId: null,
-    variable: null, // datos cargados de la variable activa (markRaw: arrays grandes)
-    vars: {}, // todas las variables ya cargadas, por id (para "Cambia junto con")
-    mode: 'compare', // 'compare' | 'trend' | 'forecast' | 'whatif'
-    yearA: null, // índice de año (0 = primer año)
-    yearB: 0,
-    yearAf: null, // valor fraccionario para la animación "Ver cómo cambió"
-    horizon: 2030,
-    warming: 1,
-    zone: null, // { lat, lon, name }
-    otherZone: null,
-    tab: 'zone', // 'zone' | 'disc'
-    discoverFilter: 'changes',
-    discoverVar: '',
-    showChart: false,
-    view: { lon0: -78, lat0: 14, zoom: 1 }, // vista inicial; el renderer la mantiene durante la interacción
-    playing: false, // animación "Ver cómo cambió"
-    flyTarget: null // { lat, lon, zoom, atLeast?, t }: el globo vuela aquí cuando cambia
+    variableId: 'tree',
+    eventId: null,
+    yearF: 0, // año fraccionario (índice desde years[0]) que muestra el globo
+    playing: false,
+    tab: 'event', // 'event' | 'news' | 'sim'
+    sim: { act: 'deforestacion', M: 20, regen: true },
+    series: {}, // events/{id}.json por id (markRaw)
+    layers: [], // capas (FieldSource) visibles de la variable activa (markRaw)
+    layersLoading: false,
+    view: { lon0: -62, lat0: -12, zoom: 1.6 }, // vista inicial; el renderer la mantiene durante la interacción
+    flyTarget: null // { lat, lon, zoom, t }
   }),
   getters: {
     variables: s => s.manifest?.variables ?? [],
+    events: s => s.manifest?.events ?? [],
     meta: s => s.manifest?.variables.find(v => v.id === s.variableId) ?? null,
+    ev: s => s.manifest?.events.find(e => e.id === s.eventId) ?? null,
+    years: s => s.manifest?.years ?? [0, 0],
     nyears: s => (s.manifest ? s.manifest.years[1] - s.manifest.years[0] + 1 : 0),
     synthetic: s => !!s.manifest?.synthetic,
-    years: s => s.manifest?.years ?? [0, 0]
+    /** Índice del año del evento seleccionado. */
+    te () { return this.ev ? this.ev.year - this.years[0] : 0 },
+    /** Línea base del globo: los 3 años previos al evento seleccionado (baseWin del prototipo). */
+    baseWin () { const te = this.te; return [Math.max(0, te - 3), Math.max(0, te - 1)] },
+    year () { return this.years[0] + Math.round(this.yearF) }
   },
   actions: {
     async init () {
       try {
         this.manifest = markRaw(await loadManifest())
-        this.yearA = this.yearAf = this.nyears - 1
-        if (!this.zone) this.zone = { lat: 10.5, lon: -85.4, name: 'Guanacaste, Costa Rica' }
-        await this.setVariable(this.manifest.variables[0].id)
-        this.loadAll()
+        // ?var=precip&ev=borneo&tab=news (enlaces directos para la demo y las capturas)
+        const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
+        if (this.manifest.variables.some(v => v.id === q.get('var'))) this.variableId = q.get('var')
+        if (!this.manifest.variables.some(v => v.id === this.variableId)) this.variableId = this.manifest.variables[0].id
+        if (['event', 'news', 'sim'].includes(q.get('tab'))) this.tab = q.get('tab')
+        const first = this.manifest.events.find(e => e.id === q.get('ev')) ?? this.manifest.events[0]
+        this.selectEvent(first.id)
+        this.loadAllSeries()
       } catch (err) {
         this.loadError = err.message
       }
     },
-    /** Carga en segundo plano el resto de variables (el panel de zona las compara). */
-    async loadAll () {
-      for (const m of this.manifest.variables) {
-        if (this.vars[m.id]) continue
-        try { this.keep(await loadVariable(m.id)) } catch { /* se reintenta al elegirla */ }
-      }
+    /** Carga en segundo plano las series de todos los eventos (Simular aprende de todos). */
+    async loadAllSeries () {
+      await Promise.all(this.manifest.events.map(async ev => {
+        try {
+          const s = await loadEventSeries(ev)
+          if (!this.series[ev.id]) this.series = { ...this.series, [ev.id]: markRaw(s) }
+        } catch (err) { console.warn(err.message) }
+      }))
     },
-    keep (v) { if (!this.vars[v.meta.id]) this.vars = { ...this.vars, [v.meta.id]: markRaw(v) } },
-    async setVariable (id) {
-      this.variableId = id
-      this.otherZone = null
-      this.loading = true
+    setVariable (id) { this.variableId = id; this.refreshLayers() },
+    /** Capas visibles: las del evento seleccionado (se cargan) + las de otros eventos ya cargadas. */
+    async refreshLayers () {
+      const M = this.manifest, ev = this.ev, id = this.variableId
+      if (!M || !ev) return
+      const mine = layerDescs(M, id, ev)
+      const others = M.events.filter(e => e !== ev).flatMap(e => layerDescs(M, id, e)).filter(d => !mine.some(m => m.file === d.file))
+      const assemble = () => {
+        const all = [...mine, ...others].map(peekLayer).filter(Boolean)
+        // teselas antes que la capa global
+        all.sort((a, b) => Number(a.wrap) - Number(b.wrap))
+        this.layers = markRaw(all)
+      }
+      assemble()
+      this.layersLoading = true
       try {
-        const v = await loadVariable(id)
-        this.keep(v)
-        if (this.variableId === id) this.variable = markRaw(v)
+        await Promise.all(mine.map(d => loadLayer(d, this.nyears)))
       } catch (err) {
-        this.loadError = err.message
+        console.warn(err.message)
       } finally {
-        if (this.variableId === id) this.loading = false
+        if (this.variableId === id && this.ev === ev) { assemble(); this.layersLoading = false }
       }
+    },
+    selectEvent (id) {
+      const ev = this.manifest.events.find(e => e.id === id)
+      if (!ev) return
+      this.eventId = id
+      this.stopPlay()
+      this.yearF = Math.min(this.nyears - 1, ev.year - this.years[0] + 1)
+      if (this.tab !== 'news') this.tab = 'event'
+      const c = ev.ctrl ?? ev
+      const lon = ev.lon + ((((c.lon - ev.lon) + 540) % 360) - 180) / 2
+      const zoom = Math.max(1.4, Math.min(2.6, 3200 / Math.max(600, km(ev, c))))
+      this.flyTarget = { lat: (ev.lat + c.lat) / 2, lon, zoom, t: Date.now() }
+      this.refreshLayers()
     },
     setTab (tab) { this.tab = tab },
-    setMode (mode) { this.stopPlay(); this.mode = mode },
-    setYearA (t) {
-      this.stopPlay()
-      this.yearA = this.yearAf = t
-      if (this.yearA <= this.yearB) this.yearB = Math.max(0, this.yearA - 1)
-    },
-    setYearB (t) {
-      this.stopPlay()
-      this.yearB = t
-      if (this.yearA <= this.yearB) this.yearA = this.yearAf = Math.min(this.nyears - 1, this.yearB + 1)
-    },
+    setYear (t) { this.stopPlay(); this.yearF = t },
     togglePlay () {
       if (this.playing) { this.stopPlay(); return }
-      if (this.yearA <= this.yearB + 1) this.yearA = this.nyears - 1
-      this.yearAf = this.yearB + 1
+      if (this.yearF >= this.nyears - 1) this.yearF = Math.max(0, this.te - 3)
       this.playing = true
     },
-    stopPlay () {
-      if (!this.playing) return
-      this.playing = false
-      this.yearAf = this.yearA
-    },
-    /** Avanza la animación (llamado en cada cuadro por el globo). */
+    stopPlay () { this.playing = false },
+    /** Avanza la reproducción (llamado en cada cuadro por el globo). */
     stepPlay (dt) {
       if (!this.playing) return
-      const next = this.yearAf + dt * 2.2
-      if (next >= this.yearA) { this.yearAf = this.yearA; this.playing = false } else this.yearAf = next
-    },
-    /**
-     * Selecciona una zona y vuela a ella. Con `other`, marca ambas y encuadra el par.
-     * zoom: zoom mínimo al que acercarse (no aleja si ya está más cerca).
-     */
-    selectZone (zone, { zoom = 1.8, other = null } = {}) {
-      this.zone = zone
-      this.otherZone = other
-      this.tab = 'zone'
-      if (other) {
-        const lon = zone.lon + ((((other.lon - zone.lon) + 540) % 360) - 180) / 2
-        const d = kmBetween(zone, other)
-        this.flyTarget = { lat: (zone.lat + other.lat) / 2, lon, zoom: Math.max(1.2, Math.min(2.2, 4200 / Math.max(800, d))), t: Date.now() }
-      } else {
-        this.flyTarget = { lat: zone.lat, lon: zone.lon, zoom, atLeast: true, t: Date.now() }
-      }
+      const next = this.yearF + dt * 1.5
+      if (next >= this.nyears - 1) { this.yearF = this.nyears - 1; this.playing = false } else this.yearF = next
     }
   }
 })

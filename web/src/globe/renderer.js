@@ -1,11 +1,11 @@
-// Globo ortográfico con d3 + capa raster de datos (PLAN §6.3, §7.2).
-// Porta `draw`, `renderLayer`, `project`, `unproject` y el bucle de animación del prototipo.
+// Globo ortográfico con d3 + capa raster de datos.
+// Porta `draw`, `renderLayer`, `project`, `unproject` y el bucle de animación del prototipo de Pulso Verde:
+// capa de diferencias respecto a la línea base del evento, cajas del evento y de la comparación, y marcadores.
 import * as d3 from 'd3'
 import { feature, mesh } from 'topojson-client'
 import land110Topo from 'world-atlas/land-110m.json'
 import countries110Topo from 'world-atlas/countries-110m.json'
-import { createField } from './field.js'
-import { lut } from '../lib/colors.js'
+import { lut, TYPES } from '../lib/colors.js'
 
 const D2R = Math.PI / 180
 const SCALE = 0.5 // resolución de la capa raster respecto a la pantalla
@@ -30,17 +30,14 @@ function loadGeo50 (onReady) {
 const graticule = d3.geoGraticule10()
 const sphere = { type: 'Sphere' }
 
-/** Caja de la zona: ±4° de latitud y ±4°/cos(lat) de longitud (PLAN §5). */
-export function boxOf (z) {
-  const dl = 4, dlo = Math.min(30, 4 / Math.cos(z.lat * D2R))
-  return { la0: z.lat - dl, la1: z.lat + dl, lo0: z.lon - dlo, lo1: z.lon + dlo }
-}
-function boxRing (z) {
-  const b = boxOf(z), r = []
-  for (let lo = b.lo0; lo <= b.lo1; lo++) r.push([lo, b.la0])
-  for (let la = b.la0; la <= b.la1; la++) r.push([b.lo1, la])
-  for (let lo = b.lo1; lo >= b.lo0; lo--) r.push([lo, b.la1])
-  for (let la = b.la1; la >= b.la0; la--) r.push([b.lo0, la])
+/** Contorno de una caja lat/lon (pasos de 0.5° para que se curve en el globo). */
+function boxRing (b) {
+  const r = []
+  for (let lo = b.lo0; lo <= b.lo1; lo += 0.5) r.push([lo, b.la0])
+  for (let la = b.la0; la <= b.la1; la += 0.5) r.push([b.lo1, la])
+  for (let lo = b.lo1; lo >= b.lo0; lo -= 0.5) r.push([lo, b.la1])
+  for (let la = b.la1; la >= b.la0; la -= 0.5) r.push([b.lo0, la])
+  r.push([b.lo0, b.la0])
   return { type: 'LineString', coordinates: r }
 }
 const shortName = name => name.split(',')[0].split(' (')[0]
@@ -48,7 +45,7 @@ const shortName = name => name.split(',')[0].split(' (')[0]
 /**
  * @param {HTMLCanvasElement} canvas
  * @param {{ getState: () => object|null, onFrame?: (dt:number) => void }} opts
- *   getState devuelve { v, meta, grid, mode, yearAf, yearB, horizon, warming, years, zone, otherZone } o null.
+ *   getState devuelve { meta, layers, yearF, base, events, ev, zoomLabels } o null.
  */
 export function createGlobe (canvas, { getState, onFrame }) {
   const ctx = canvas.getContext('2d')
@@ -58,7 +55,7 @@ export function createGlobe (canvas, { getState, onFrame }) {
   const view = { lon0: -78, lat0: 14, zoom: 1, cx: 0, cy: 0, R0: 0, W: 0, H: 0 }
   const IDLE_MS = 200
   let lastMove = 0, drewHi = false
-  let spin = !reduce, fly = null, dirty = true, layerKey = '', raf = 0, last = performance.now(), field = null, fieldGrid = null
+  let spin = false, fly = null, dirty = true, layerKey = '', raf = 0, last = performance.now()
 
   const proj = () => d3.geoOrthographic().rotate([-view.lon0, -view.lat0]).scale(view.R0 * view.zoom)
     .translate([view.cx, view.cy]).clipAngle(90).precision(0.3)
@@ -84,57 +81,52 @@ export function createGlobe (canvas, { getState, onFrame }) {
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     off.width = Math.max(1, Math.ceil(w * SCALE)); off.height = Math.max(1, Math.ceil(h * SCALE))
-    // Deja espacio para el selector de modo (arriba) y la barra de controles (abajo).
+    // Deja espacio para la barra de reproducción (abajo).
     const compact = w < 560
-    view.cx = w / 2; view.cy = h / 2 - (compact ? 40 : 30)
-    view.R0 = Math.max(60, Math.min(w * (compact ? 0.44 : 0.40), (h - (compact ? 200 : 150)) * 0.5))
+    view.cx = w / 2; view.cy = h / 2 - 40
+    view.R0 = Math.max(60, Math.min(w * (compact ? 0.44 : 0.40), (h - 170) * 0.5))
     layerKey = ''; dirty = true
   }
 
-  function bil (arr, fi, fj, nx, ny) {
-    let i0 = Math.floor(fi), j0 = Math.floor(fj)
-    const di = fi - i0, dj = fj - j0
-    const i1 = Math.min(ny - 1, Math.max(0, i0 + 1)); i0 = Math.min(ny - 1, Math.max(0, i0))
-    const ja = ((j0 % nx) + nx) % nx, jb = (ja + 1) % nx
-    return (arr[i0 * nx + ja] * (1 - dj) + arr[i0 * nx + jb] * dj) * (1 - di) +
-           (arr[i1 * nx + ja] * (1 - dj) + arr[i1 * nx + jb] * dj) * di
-  }
-
   function renderLayer (s) {
-    if (fieldGrid !== s.grid) { field = createField(s.grid); fieldGrid = s.grid }
-    field.build(s)
-    const lk = `${field.key}|${view.lon0.toFixed(3)}|${view.lat0.toFixed(3)}|${view.zoom.toFixed(4)}|${off.width}x${off.height}`
+    const fs = { id: s.meta.id, tf: s.yearF, base: s.base, scale: s.meta.scale, rel: !!s.meta.rel }
+    for (const L of s.layers) L.build(fs)
+    const lk = `${s.layers.map(L => L.key).join(';')}|${s.layers.length}|${view.lon0.toFixed(3)}|${view.lat0.toFixed(3)}|${view.zoom.toFixed(4)}|${off.width}x${off.height}`
     if (lk === layerKey) return
     layerKey = lk
-    const { nx, ny, res, lat0: glat0, lon0: glon0 } = s.grid
-    const { BV, BA } = field
-    const L = lut(s.meta.palette)
+    const L = lut(s.meta.palette), layers = s.layers, nl = layers.length
     const w = off.width, h = off.height, img = offx.createImageData(w, h), d = img.data
-    const R = view.R0 * view.zoom, p0 = view.lat0 * D2R, sp0 = Math.sin(p0), cp0 = Math.cos(p0)
-    const x0 = Math.max(0, Math.floor((view.cx - R) * SCALE)), x1 = Math.min(w, Math.ceil((view.cx + R) * SCALE))
-    const y0 = Math.max(0, Math.floor((view.cy - R) * SCALE)), y1 = Math.min(h, Math.ceil((view.cy + R) * SCALE))
-    const cmp = s.mode === 'compare'
-    for (let py = y0; py < y1; py++) {
-      const y = view.cy - (py + 0.5) / SCALE
-      for (let px = x0; px < x1; px++) {
-        const x = (px + 0.5) / SCALE - view.cx, rho = Math.sqrt(x * x + y * y)
-        if (rho >= R) continue
-        const sc = rho / R, cc = Math.sqrt(1 - sc * sc)
-        const la = rho < 1e-6 ? view.lat0 : Math.asin(cc * sp0 + y * sc * cp0 / rho) / D2R
-        const lo = view.lon0 + Math.atan2(x * sc, rho * cc * cp0 - y * sc * sp0) / D2R
-        const fi = (glat0 - la) / res, fj = (lo - glon0) / res
-        const a = bil(BA, fi, fj, nx, ny)
-        if (a < 0.03) continue
-        const val = bil(BV, fi, fj, nx, ny), av = Math.abs(val)
-        // Comparar: transparente si |x| < 0.08, rampa hasta 0.48. Demás modos: 0.5 + 0.6|x|.
-        const st = cmp ? Math.max(0, Math.min(1, (av - 0.08) / 0.4)) : Math.min(1, 0.5 + av * 0.6)
-        if (st <= 0) continue
-        const k = Math.max(0, Math.min(255, Math.round((val + 1) * 127.5))), o = (py * w + px) * 4
-        d[o] = L[k * 3]; d[o + 1] = L[k * 3 + 1]; d[o + 2] = L[k * 3 + 2]
-        d[o + 3] = Math.round(255 * a * st * 0.93)
+    if (nl) {
+      const R = view.R0 * view.zoom, p0 = view.lat0 * D2R, sp0 = Math.sin(p0), cp0 = Math.cos(p0)
+      const x0 = Math.max(0, Math.floor((view.cx - R) * SCALE)), x1 = Math.min(w, Math.ceil((view.cx + R) * SCALE))
+      const y0 = Math.max(0, Math.floor((view.cy - R) * SCALE)), y1 = Math.min(h, Math.ceil((view.cy + R) * SCALE))
+      for (let py = y0; py < y1; py++) {
+        const y = view.cy - (py + 0.5) / SCALE
+        for (let px = x0; px < x1; px++) {
+          const x = (px + 0.5) / SCALE - view.cx, rho = Math.sqrt(x * x + y * y)
+          if (rho >= R) continue
+          const sc = rho / R, cc = Math.sqrt(1 - sc * sc)
+          const la = rho < 1e-6 ? view.lat0 : Math.asin(cc * sp0 + y * sc * cp0 / rho) / D2R
+          let lo = view.lon0 + Math.atan2(x * sc, rho * cc * cp0 - y * sc * sp0) / D2R
+          lo = ((lo + 540) % 360) - 180
+          let layer = null
+          for (let k = 0; k < nl; k++) if (layers[k].contains(la, lo)) { layer = layers[k]; break }
+          if (!layer) continue
+          const { fi, fj } = layer.frac(la, lo), f = layer.fieldAt(fi, fj)
+          if (f.a < 0.03) continue
+          const k = Math.max(0, Math.min(255, Math.round(f.t * 255))), o = (py * w + px) * 4
+          d[o] = L[k * 3]; d[o + 1] = L[k * 3 + 1]; d[o + 2] = L[k * 3 + 2]
+          d[o + 3] = Math.round(240 * Math.min(1, f.a))
+        }
       }
     }
     offx.putImageData(img, 0, 0)
+  }
+
+  const label = (t, x, y, col, align = 'center') => {
+    ctx.font = '700 12px Figtree, sans-serif'; ctx.textAlign = align; ctx.textBaseline = 'middle'
+    ctx.lineWidth = 3.5; ctx.strokeStyle = '#fefae0'; ctx.strokeText(t, x, y)
+    ctx.fillStyle = col; ctx.fillText(t, x, y); ctx.textAlign = 'left'
   }
 
   function draw (s) {
@@ -167,10 +159,7 @@ export function createGlobe (canvas, { getState, onFrame }) {
       renderLayer(s)
       if (import.meta.env.DEV) { const st = (window.__globeStats ||= { n: 0, total: 0, max: 0 }); st.layer = (st.layer || 0) + performance.now() - tl }
       ctx.save()
-      const clip = s.meta.clip || 'all'
-      if (clip === 'ocean') { const both = new Path2D(); both.addPath(sphereP); both.addPath(landP); ctx.clip(both, 'evenodd') }
-      else if (clip === 'land') ctx.clip(landP)
-      else ctx.clip(sphereP)
+      ctx.clip(landP)
       ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'
       ctx.drawImage(off, 0, 0, off.width / SCALE, off.height / SCALE)
       ctx.restore()
@@ -183,22 +172,22 @@ export function createGlobe (canvas, { getState, onFrame }) {
     ctx.fillStyle = sh; ctx.fill(sphereP)
 
     if (!s) return
-    const mark = (z, col, label) => {
-      ctx.strokeStyle = col; ctx.lineWidth = 2.4; ctx.setLineDash([6, 4]); ctx.stroke(P(boxRing(z))); ctx.setLineDash([])
-      const q = project(z.lat, z.lon)
-      if (q.vis <= 0) return
-      const pulse = reduce ? 0 : (performance.now() / 900) % 1
-      ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.globalAlpha = 1 - pulse
-      ctx.beginPath(); ctx.arc(q.x, q.y, 6 + pulse * 16, 0, 6.283); ctx.stroke(); ctx.globalAlpha = 1
-      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, 6.283); ctx.fill()
-      if (label) {
-        ctx.font = '700 12px Figtree, sans-serif'; ctx.textBaseline = 'middle'
-        ctx.lineWidth = 3.5; ctx.strokeStyle = '#fefae0'; ctx.strokeText(label, q.x + 9, q.y)
-        ctx.fillStyle = '#283618'; ctx.fillText(label, q.x + 9, q.y)
+    const ev = s.ev
+    if (ev) {
+      ctx.strokeStyle = TYPES[ev.type].c; ctx.lineWidth = 2.6; ctx.stroke(P(boxRing(ev.box)))
+      if (ev.ctrl) {
+        ctx.strokeStyle = '#3f7a35'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.stroke(P(boxRing(ev.ctrl.box))); ctx.setLineDash([])
+        const q = project(ev.ctrl.box.la1, ev.ctrl.lon)
+        if (q.vis > 0) label('Comparación: ' + ev.ctrl.name.split(' (')[0], q.x, q.y - 9, '#2f6430')
       }
     }
-    if (s.otherZone) mark(s.otherZone, '#606c38', shortName(s.otherZone.name))
-    if (s.zone) mark(s.zone, '#bc6c25', view.zoom >= 1.6 || s.otherZone ? shortName(s.zone.name) : null)
+    for (const e of s.events) {
+      const q = project(e.lat, e.lon)
+      if (q.vis < 0.1) continue
+      ctx.fillStyle = TYPES[e.type].c; ctx.strokeStyle = '#fffdf5'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(q.x, q.y, e === ev ? 7 : 5.5, 0, 6.283); ctx.fill(); ctx.stroke()
+      if (e === ev || view.zoom >= 1.5) label(`${shortName(e.place)} · ${e.year}`, q.x + 10, q.y, '#283618', 'left')
+    }
   }
 
   let lastKey = ''
@@ -215,9 +204,8 @@ export function createGlobe (canvas, { getState, onFrame }) {
     // Al quedarse quieta la vista, redibuja una vez con la geometría detallada.
     if (!drewHi && view.zoom >= 2 && now - lastMove >= IDLE_MS) dirty = true
     const s = getState()
-    if (s && (s.zone || s.otherZone) && !reduce) dirty = true
     // Redibuja si cambia algo del estado que afecte al dibujo.
-    const key = s ? `${s.meta.id}|${s.mode}|${s.yearAf}|${s.yearB}|${s.horizon}|${s.warming}|${s.zone?.lat},${s.zone?.lon}|${s.otherZone?.lat},${s.otherZone?.lon}` : 'none'
+    const key = s ? `${s.meta.id}|${s.yearF}|${s.base}|${s.ev?.id}|${s.layers.length}` : 'none'
     if (key !== lastKey) { lastKey = key; dirty = true }
     if (dirty) {
       const t0 = performance.now()
