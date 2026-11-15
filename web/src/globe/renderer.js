@@ -205,7 +205,7 @@ export function createGlobe (canvas, { getState, onFrame }) {
     if (!drewHi && view.zoom >= 2 && now - lastMove >= IDLE_MS) dirty = true
     const s = getState()
     // Redibuja si cambia algo del estado que afecte al dibujo.
-    const key = s ? `${s.meta.id}|${s.yearF}|${s.base}|${s.ev?.id}|${s.layers.length}` : 'none'
+    const key = s ? `${s.meta.id}|${s.yearF}|${s.base}|${s.eventType}|${s.events.map(e => e.id).join(',')}|${s.ev?.id}|${s.layers.length}` : 'none'
     if (key !== lastKey) { lastKey = key; dirty = true }
     if (dirty) {
       const t0 = performance.now()

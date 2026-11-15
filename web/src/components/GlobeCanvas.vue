@@ -8,6 +8,7 @@ import { km } from '../lib/names.js'
 import { fmtA, fmtLL } from '../lib/format.js'
 import { TYPES } from '../lib/colors.js'
 import PlaybackControl from './PlaybackControl.vue'
+import EventList from './EventList.vue'
 
 const app = useAppStore()
 const stage = ref(null)
@@ -19,12 +20,20 @@ let globe = null, detach = null, ro = null
 /** Estado que necesita el renderer en cada cuadro (objeto plano, sin reactividad). */
 function globeState () {
   if (!app.manifest || !app.meta) return null
-  return { meta: app.meta, layers: app.layers, yearF: app.yearF, base: app.baseWin, events: app.events, ev: app.ev }
+  return {
+    meta: app.meta,
+    layers: app.layers,
+    yearF: app.yearF,
+    base: app.baseWin,
+    events: app.visibleEvents,
+    eventType: app.eventType,
+    ev: app.ev
+  }
 }
 
 const nearest = (p, maxKm) => {
   let best = null, bd = Infinity
-  for (const e of app.events) { const d = km(e, p); if (d < bd) { bd = d; best = e } }
+  for (const e of app.visibleEvents) { const d = km(e, p); if (d < bd) { bd = d; best = e } }
   return bd < maxKm ? best : null
 }
 
@@ -62,7 +71,13 @@ onMounted(() => {
   fit()
   ro = new ResizeObserver(fit); ro.observe(stage.value)
   detach = attachInteraction(canvas.value, globe, {
-    onSelect: p => { const e = nearest(p, 500); if (e) app.selectEvent(e.id) },
+    onSelect: p => {
+      const e = nearest(p, 500)
+      if (e) {
+        app.selectEvent(e.id)
+        globe.markDirty()
+      }
+    },
     onHover,
     onLeave: () => { tip.value.show = false }
   })
@@ -78,6 +93,7 @@ watch(() => app.flyTarget, t => { if (t && globe) globe.flyTo(t.lat, t.lon, t.zo
     <canvas ref="canvas" class="globe"
             aria-label="Globo terráqueo. Arrastra para girar, rueda para acercar, toca un evento para analizarlo."></canvas>
     <span class="caption">Arrastra para girar · toca un evento para analizarlo</span>
+    <EventList v-if="app.manifest" />
     <div class="zoom">
       <button type="button" aria-label="Acercar" @click="zoomBy(1.6)">+</button>
       <button type="button" aria-label="Alejar" @click="zoomBy(1 / 1.6)">−</button>

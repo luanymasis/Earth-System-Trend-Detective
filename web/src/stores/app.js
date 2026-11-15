@@ -13,6 +13,7 @@ export const useAppStore = defineStore('app', {
     dataWarning: null,
     variableId: 'tree',
     eventId: null,
+    eventType: 'all',
     yearF: 0, // índice mensual fraccionario que muestra el globo
     playing: false,
     tab: 'event', // 'event' | 'news' | 'sim'
@@ -26,6 +27,7 @@ export const useAppStore = defineStore('app', {
   getters: {
     variables: s => s.manifest?.variables ?? [],
     events: s => s.manifest?.events ?? [],
+    visibleEvents: s => s.eventType === 'all' ? s.manifest?.events ?? [] : (s.manifest?.events ?? []).filter(e => e.type === s.eventType),
     meta: s => s.manifest?.variables.find(v => v.id === s.variableId) ?? null,
     ev: s => s.manifest?.events.find(e => e.id === s.eventId) ?? null,
     dates: s => s.manifest?.dates ?? [],
@@ -92,6 +94,12 @@ export const useAppStore = defineStore('app', {
       }))
     },
     setVariable (id) { this.dataWarning = null; this.variableId = id; this.refreshLayers() },
+    setEventType (type) {
+      this.eventType = type
+      if (this.eventId && type !== 'all' && this.ev?.type !== type) {
+        this.selectEvent(this.visibleEvents[0]?.id)
+      }
+    },
     /** Capas visibles: las del evento seleccionado (se cargan) + las de otros eventos ya cargadas. */
     async refreshLayers () {
       const M = this.manifest, ev = this.ev, id = this.variableId
