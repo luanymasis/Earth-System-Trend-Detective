@@ -211,7 +211,7 @@ Los resultados de ambas verificaciones van a `docs/VALIDATION.md`. En la UI apar
 { "id": "rondonia",
   "series": { "tree":   { "event": [24 valores o null], "control": [24 valores o null], "n_event": 31500, "n_control": 29800 },
               "lst":    { "...": "..." }, "sm": { "...": "..." }, "precip": { "...": "..." } },
-  "verify": { "gldas_precip": { "role": "verify_precip", "product": "GLDAS_NOAH025_M.2.1", "layer": "Rainf_f_tavg", "units": "mm/mes", "event": [24], "control": [24] },
+  "verify": { "gldas_precip": { "role": "verify_precip", "product": "GLDAS_NOAH025_M.2.1", "layer": "Rainf_tavg", "units": "mm/mes", "event": [24], "control": [24] },
               "gldas_skint":  { "role": "verify_lst", "...": "..." } },
   "stations": [ { "id": "…", "name": "…", "dist_km": 42, "inside": "event", "TAVG": [24], "PRCP": [24] } ] }
 ```

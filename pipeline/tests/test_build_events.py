@@ -25,11 +25,15 @@ def env(tmp_path, monkeypatch):
     common.write_json(out / "series_sm.json", {"var": "sm", "role": "primary", "dates": common.DATES, "units": "m³/m³",
                                                "tool": "GES DISC", "product": "GLDAS_NOAH025_M.2.1", "layer": "SoilMoi0_10cm_inst",
                                                "regions": {k: {"y": ys, "n": 100} for k in regs}})
-    common.write_json(out / "series_gldas_skint.json", {"var": "gldas_skint", "role": "verify_lst", "dates": common.DATES,
+    common.write_json(out / "series_lst.json", {"var": "lst", "role": "primary", "dates": common.DATES,
                                                         "units": "°C", "tool": "GES DISC", "product": "GLDAS_NOAH025_M.2.1",
                                                         "layer": "Tair_f_inst", "regions": {k: {"y": [25.0] * common.NM, "n": 9} for k in regs}})
+    common.write_json(out / "series_gldas_precip.json", {"var": "gldas_precip", "role": "verify_precip", "dates": common.DATES,
+                                                        "units": "mm/mes", "tool": "GES DISC", "product": "GLDAS_NOAH025_M.2.1",
+                                                        "layer": "Rainf_tavg", "regions": {k: {"y": [12.0] * common.NM} for k in regs}})
     g = np.full((common.NM, 180, 360), np.nan, dtype=np.float32); g[:, 100, 117] = 0.31
     np.savez_compressed(out / "grid_sm.npz", data=g, grid=json.dumps({"res": 1, "lat0": 89.5, "lon0": -179.5, "nx": 360, "ny": 180}))
+    np.savez_compressed(out / "grid_gldas_precip.npz", data=g, grid=json.dumps({"res": 1, "lat0": 89.5, "lon0": -179.5, "nx": 360, "ny": 180}))
     return web
 
 
@@ -43,11 +47,14 @@ def test_real_data_and_missing_values(env):
     ev = json.loads((env / "events" / "rondonia.json").read_text(encoding="utf-8"))
     assert ev["series"]["sm"]["event"][3] is None and ev["series"]["sm"]["event"][0] == 0.2
     assert ev["series"]["tree"]["event"] == [None] * common.NM
-    assert ev["verify"]["gldas_skint"]["control"][0] == 25.0
+    assert ev["series"]["lst"]["control"][0] == 25.0
+    assert ev["series"]["precip"]["event"][0] == 12.0
+    assert ev["verify"]["gldas_precip"]["layer"] == "Rainf_tavg"
     assert all(not t["files"] for e in m["events"] for t in e["tiles"])
     gs = {x["var"]: x for x in m["global"]}
     raw = np.frombuffer((env / gs["sm"]["file"]).read_bytes(), dtype="<i2").reshape(common.NM, 180, 360)
     assert raw[0, 100, 117] * gs["sm"]["scale"] == pytest.approx(0.31) and raw[0, 0, 0] == -32768
+    assert {x["var"] for x in m["global"]} == {"sm", "precip"}
 
 
 def test_missing_data_leaves_empty_layers(env):
@@ -55,4 +62,4 @@ def test_missing_data_leaves_empty_layers(env):
     m = json.loads((env / "manifest.json").read_text(encoding="utf-8"))
     ev = json.loads((env / "events" / "chaco.json").read_text(encoding="utf-8"))
     assert ev["series"]["tree"]["event"] == [None] * common.NM
-    assert [x["var"] for x in m["global"]] == ["sm"]
+    assert [x["var"] for x in m["global"]] == ["sm", "precip"]
