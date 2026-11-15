@@ -17,7 +17,7 @@ LAT = np.arange(-59.875, 90, 0.25)
 LON = np.arange(-179.875, 180, 0.25)
 
 
-def fake_gldas(path: Path, sm_kgm2: float = 25.0, rain: float = 3e-5, tskin: float = 300.0, ocean_lon=(0, 20)):
+def fake_gldas(path: Path, sm_kgm2: float = 25.0, rain: float = 3e-5, tair: float = 300.0, ocean_lon=(0, 20)):
     """Archivo con campos constantes; una franja de «océano» (relleno) entre ocean_lon."""
     with netCDF4.Dataset(path, "w") as ds:
         ds.createDimension("time", 1); ds.createDimension("lat", LAT.size); ds.createDimension("lon", LON.size)
@@ -26,7 +26,7 @@ def fake_gldas(path: Path, sm_kgm2: float = 25.0, rain: float = 3e-5, tskin: flo
         ds.createVariable("time", "f8", ("time",))[:] = [0]
         ocean = (LON >= ocean_lon[0]) & (LON < ocean_lon[1])
         for name, val, units in [("SoilMoi0_10cm_inst", sm_kgm2, "kg m-2"), ("Rainf_f_tavg", rain, "kg m-2 s-1"),
-                                 ("AvgSurfT_inst", tskin, "K")]:
+                                 ("Tair_f_inst", tair, "K")]:
             v = ds.createVariable(name, "f4", ("time", "lat", "lon"), fill_value=-9999.0)
             v.units = units
             a = np.full((1, LAT.size, LON.size), val, dtype="f4")
@@ -39,7 +39,7 @@ def test_convert_units():
     assert gldas.convert("SoilMoi0_10cm_inst", "kg m-2", a, 2016, 5)[0] == pytest.approx(0.25)
     assert gldas.convert("SoilMoi10_40cm_inst", "kg m-2", np.array([90.0]), 2016, 5)[0] == pytest.approx(0.30)
     assert gldas.convert("Rainf_f_tavg", "kg m-2 s-1", np.array([1e-5]), 2016, 2)[0] == pytest.approx(1e-5 * 86400 * 29)
-    assert gldas.convert("AvgSurfT_inst", "K", np.array([273.15]), 2016, 5)[0] == pytest.approx(0)
+    assert gldas.convert("Tair_f_inst", "K", np.array([273.15]), 2016, 5)[0] == pytest.approx(0)
     with pytest.raises(ValueError):
         gldas.convert("SoilMoi0_10cm_inst", "m3 m-3", a, 2016, 5)
 
@@ -100,11 +100,10 @@ def test_local_and_aggregate(tmp_path, monkeypatch):
     import json
     s = json.loads((tmp_path / "out" / "series_sm.json").read_text(encoding="utf-8"))
     y = s["regions"]["rondonia:E"]["y"]
-    assert y[2016 - 2001] == pytest.approx(np.mean([(20 + m) / 100 for m in range(1, 13)]))
+    assert y[(2016 - 2001) * 12] == pytest.approx((20 + 1) / 100)
     assert y[0] is None
     z = np.load(tmp_path / "out" / "grid_sm.npz")
-    assert z["data"].shape == (common.NT, 180, 360)
-    pr = json.loads((tmp_path / "out" / "series_gldas_precip.json").read_text(encoding="utf-8"))["regions"]["rondonia:E"]["y"][15]
-    days = sum(calendar.monthrange(2016, m)[1] for m in range(1, 13))
-    assert pr == pytest.approx(3e-5 * 86400 * days / 12, rel=1e-5)
+    assert z["data"].shape == (common.NM, 180, 360)
+    pr = json.loads((tmp_path / "out" / "series_gldas_precip.json").read_text(encoding="utf-8"))["regions"]["rondonia:E"]["y"][(2016 - 2001) * 12 + 1]
+    assert pr == pytest.approx(3e-5 * 86400 * calendar.monthrange(2016, 2)[1], rel=1e-5)
     assert len((tmp_path / "SOURCES.csv").read_text(encoding="utf-8").strip().splitlines()) == 4  # encabezado + 3

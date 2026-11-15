@@ -12,6 +12,10 @@ function olsFrom (a, t0) {
   return k > 1 ? (k * sxy - sx * sy) / (k * sxx - sx * sx) : null
 }
 const median = arr => { const s = arr.slice().sort((x, y) => x - y); return s.length ? s[Math.floor((s.length - 1) / 2)] : 1 }
+const annual = a => Array.from({ length: Math.ceil(a.length / 12) }, (_, y) => {
+  const x = a.slice(y * 12, y * 12 + 12).filter(isNum)
+  return x.length ? x.reduce((s, v) => s + v, 0) / x.length : null
+})
 
 /**
  * Relaciones empíricas aprendidas de los eventos.
@@ -28,7 +32,7 @@ export function empirical (list, vars) {
     for (let lag = 0; lag <= 4; lag++) {
       let sxy = 0, sxx = 0, syy = 0
       for (const { A } of ok) {
-        const T = A.R.tree.a, Y = A.R[v.id]?.a
+        const T = A.monthly ? annual(A.R.tree.a) : A.R.tree.a, Y = A.monthly ? annual(A.R[v.id]?.a ?? []) : A.R[v.id]?.a
         if (!Y) continue
         for (let t = A.te; t < T.length; t++) {
           const x = T[t - lag]
@@ -42,7 +46,12 @@ export function empirical (list, vars) {
     out[v.id] = best
   }
   const slopes = (type, from) => ok.filter(x => x.ev.type === type)
-    .map(({ A }) => olsFrom(A.R.tree.a, A.te + (from === 'peak' ? A.R.tree.kpk : 0)))
+    .map(({ A }) => {
+      const tree = A.monthly ? annual(A.R.tree.a) : A.R.tree.a
+      const te = A.monthly ? Math.floor(A.te / 12) : A.te
+      const peak = A.monthly ? Math.floor(A.R.tree.kpk / 12) : A.R.tree.kpk
+      return olsFrom(tree, te + (from === 'peak' ? peak : 0))
+    })
     .filter(x => x !== null)
   out.regen = Math.max(0.3, median(slopes('incendio', 'peak')))
   out.refo = Math.max(0.2, median(slopes('reforestacion', 'start')))

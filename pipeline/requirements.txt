@@ -1,10 +1,7 @@
-# Núcleo (mock.py, stats.py, export.py)
+# Núcleo del pipeline
 numpy>=1.26
-scipy>=1.11
-matplotlib>=3.8
 # Tests
 pytest>=8
-pymannkendall>=1.4
 # Pipeline real (H4): descarga y cubo
 earthaccess>=0.9
 xarray>=2024.1

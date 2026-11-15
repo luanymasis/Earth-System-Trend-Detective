@@ -11,3 +11,8 @@ export const fmtA = (v, x) => v.rel
   : `${sgn(x)}${num(x, v.id === 'sm' ? 3 : v.id === 'lst' ? 2 : 1)} ${v.unitsCh}`
 /** "1 año" / "3 años" */
 export const YRS = n => `${n} ${n === 1 ? 'año' : 'años'}`
+export const DUR = (n, monthly = false) => {
+  if (!monthly) return YRS(n)
+  if (n >= 24 && n % 12 === 0) return YRS(n / 12)
+  return `${n} ${n === 1 ? 'mes' : 'meses'}`
+}

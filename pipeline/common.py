@@ -18,6 +18,8 @@ SOURCES = ROOT / "SOURCES.csv"
 
 Y0, Y1 = 2001, 2024
 NT = Y1 - Y0 + 1
+NM = NT * 12
+DATES = [f"{y}-{m:02d}" for y in range(Y0, Y1 + 1) for m in range(1, 13)]
 
 
 def box_around(lat: float, lon: float, r: float) -> dict:

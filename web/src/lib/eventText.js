@@ -1,6 +1,6 @@
 // Textos del panel de evento en lenguaje cotidiano (PLAN_FASE3 §5.3).
 // Port de `plainVar`, `headline`, `spark` e `ICON` del prototipo.
-import { cap, fmtA, YRS } from './format.js'
+import { cap, fmtA, DUR } from './format.js'
 import { dirCol } from './colors.js'
 
 const SVGI = p => `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="vertical-align:-3px">${p}</svg>`
@@ -16,19 +16,19 @@ export const ICON = {
  * tone: good | wait | bad | none (color del borde superior).
  */
 export function plainVar (ev, v, r) {
-  if (r.status === 'insufficient') return { main: 'Sin datos suficientes', sub: 'Faltan años antes o después del evento', tone: 'none' }
+  if (r.status === 'insufficient') return { main: 'Sin datos suficientes', sub: `Faltan ${r.monthly ? 'meses' : 'años'} antes o después del evento`, tone: 'none' }
   const refo = ev.type === 'reforestacion', after = r.post, up = x => x > 0
   const verb = x => v.id === 'lst' ? (up(x) ? 'subió' : 'bajó') : (up(x) ? 'aumentó' : 'bajó')
   const amount = x => fmtA(v, x).replace(/^[+−]/, '')
   if (refo) {
-    if (r.status === 'effect') return { main: `${verb(r.end)} ${amount(r.end)}`, sub: `Se empezó a notar ${r.onset === 0 ? 'el mismo año' : `al año ${r.onset}`}`, tone: 'good', col: dirCol(v.palette, r.end) }
-    return { main: 'Sin cambio claro todavía', sub: after < 7 ? 'Han pasado pocos años desde la plantación' : 'No se nota un efecto en los datos', tone: 'none' }
+    if (r.status === 'effect') return { main: `${verb(r.end)} ${amount(r.end)}`, sub: `Se empezó a notar ${r.onset === 0 ? (r.monthly ? 'el mismo mes' : 'el mismo año') : `a los ${DUR(r.onset, r.monthly)}`}`, tone: 'good', col: dirCol(v.palette, r.end) }
+    return { main: 'Sin cambio claro todavía', sub: after < (r.monthly ? 84 : 7) ? `Han pasado pocos ${r.monthly ? 'meses' : 'años'} desde la plantación` : 'No se nota un efecto en los datos', tone: 'none' }
   }
   if (!r.sig) return { main: 'Sin cambio claro', sub: 'No se alteró de forma notable', tone: 'none' }
   const main = `${verb(r.peak)} ${amount(r.peak)}`
-  if (r.status === 'recovered') return { main, sub: `Volvió a la normalidad en ${YRS(r.rec)}`, tone: 'good', col: dirCol(v.palette, r.peak) }
-  if (r.status === 'recovering') return { main, sub: `Se está recuperando · faltan ≈ ${YRS(Math.max(1, Math.round(r.est - after)))}`, tone: 'wait', col: dirCol(v.palette, r.peak) }
-  return { main, sub: `No se ha recuperado (${YRS(after)} después)`, tone: 'bad', col: dirCol(v.palette, r.peak) }
+  if (r.status === 'recovered') return { main, sub: `Volvió a la normalidad en ${DUR(r.rec, r.monthly)}`, tone: 'good', col: dirCol(v.palette, r.peak) }
+  if (r.status === 'recovering') return { main, sub: `Se está recuperando · faltan ≈ ${DUR(Math.max(1, Math.round(r.est - after)), r.monthly)}`, tone: 'wait', col: dirCol(v.palette, r.peak) }
+  return { main, sub: `No se ha recuperado (${DUR(after, r.monthly)} después)`, tone: 'bad', col: dirCol(v.palette, r.peak) }
 }
 
 /** Veredicto del evento en una línea. */

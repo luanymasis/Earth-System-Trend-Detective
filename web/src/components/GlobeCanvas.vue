@@ -38,7 +38,7 @@ function onHover (x, y, p) {
     title: ev ? ev.place : fmtLL(p.lat, p.lon),
     type: ev ? `${TYPES[ev.type].l} ${ev.year}` : null,
     typeClass: ev?.type,
-    body: Number.isNaN(d) ? '' : `${app.meta.short} en ${app.years[0] + t}: ${fmtA(app.meta, d)} vs antes del evento`,
+    body: Number.isNaN(d) ? '' : `${app.meta.short} en ${app.dates[t]}: ${fmtA(app.meta, d)} vs antes del evento`,
     hint: !!ev
   }
   requestAnimationFrame(() => {
@@ -83,12 +83,13 @@ watch(() => app.flyTarget, t => { if (t && globe) globe.flyTo(t.lat, t.lon, t.zo
       <button type="button" aria-label="Alejar" @click="zoomBy(1 / 1.6)">−</button>
     </div>
     <PlaybackControl v-if="app.manifest" />
-    <div v-if="app.loadError || !app.manifest" class="status" role="status">
-      <template v-if="app.loadError">
-        <h2>No se pudieron cargar los datos</h2>
-        <p class="empty">{{ app.loadError }}</p>
-      </template>
-      <p v-else class="empty">Cargando datos…</p>
+    <div v-if="app.loadError || app.dataWarning" class="data-warning" role="status" aria-live="polite">
+      <span aria-hidden="true">⚠</span>
+      {{ app.loadError || app.dataWarning }}
+      <button type="button" aria-label="Cerrar aviso" @click="app.loadError ? (app.loadError = null) : app.clearDataWarning()">×</button>
+    </div>
+    <div v-else-if="!app.manifest" class="data-warning loading" role="status" aria-live="polite">
+      Cargando datos…
     </div>
     <div ref="tipEl" class="tip" role="tooltip" v-show="tip.show" :style="{ left: tip.x + 'px', top: tip.y + 'px' }">
       <b>{{ tip.title }}</b>
@@ -107,8 +108,10 @@ watch(() => app.flyTarget, t => { if (t && globe) globe.flyTo(t.lat, t.lon, t.zo
 .zoom{position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:6px}
 .zoom button{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font:600 18px var(--font-body);cursor:pointer;color:var(--ink)}
 .zoom button:hover{border-color:var(--accent)}
-.status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:420px;text-align:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 4px 18px rgba(40,54,24,.1)}
-.status h2{font-size:20px;margin:2px 0 8px}
+.data-warning{position:absolute;left:16px;bottom:16px;display:flex;align-items:center;gap:7px;max-width:min(360px,calc(100% - 32px));padding:8px 10px;background:var(--surface);border:1px solid #d8b36a;border-radius:9px;color:var(--ink);font-size:12px;box-shadow:0 4px 14px rgba(40,54,24,.14);z-index:5}
+.data-warning span{color:#a76b16;font-size:15px}
+.data-warning button{margin-left:auto;border:0;background:transparent;color:var(--muted);font-size:17px;line-height:1;cursor:pointer;padding:0 2px}
+.data-warning.loading{color:var(--muted);border-color:var(--line)}
 .tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:13px;z-index:4;max-width:250px;box-shadow:0 4px 14px rgba(40,54,24,.12)}
 .tip .tag{font-size:9.5px}
 .tipsub{color:var(--muted)}

@@ -3,7 +3,7 @@
 // se cargan bajo demanda y quedan en caché.
 import { createGridLayer } from '../globe/field.js'
 
-const BASE = `${import.meta.env.BASE_URL}data/`
+const BASE = new URL(`${import.meta.env.BASE_URL}data/`, document.baseURI).toString()
 const MISSING = -32768
 
 let manifestPromise = null
@@ -12,9 +12,16 @@ const ready = new Map() // ruta → valor ya cargado
 
 export function loadManifest () {
   if (!manifestPromise) {
-    manifestPromise = fetch(`${BASE}manifest.json`).then(r => {
-      if (!r.ok) throw new Error(`No se encontró manifest.json (${r.status}). Corre "npm run mock" en web/.`)
-      return r.json()
+    const url = `${BASE}manifest.json`
+    manifestPromise = fetch(url, { cache: 'no-store' }).then(async r => {
+      const text = await r.text()
+      if (!r.ok) throw new Error(`No se encontró manifest.json (${r.status}) en ${url}`)
+      try {
+        return JSON.parse(text)
+      } catch {
+        const preview = text.trim().slice(0, 80).replace(/\s+/g, ' ')
+        throw new Error(`manifest.json no es JSON válido en ${url}: ${preview}`)
+      }
     }).catch(err => { manifestPromise = null; throw err })
   }
   return manifestPromise
@@ -30,15 +37,16 @@ function once (path, load) {
 }
 
 async function fetchOk (path) {
-  const r = await fetch(BASE + path)
-  if (!r.ok) throw new Error(`No se pudo leer ${path} (${r.status})`)
+  const url = new URL(path, BASE).toString()
+  const r = await fetch(url, { cache: 'no-store' })
+  if (!r.ok) throw new Error(`No se pudo leer ${path} (${r.status}) en ${url}`)
   return r
 }
 
 /** events/{id}.json → { id, series: { var: { event, control, n_event, n_control } }, stations } */
 export const loadEventSeries = ev => once(ev.series, async () => (await fetchOk(ev.series)).json())
 
-/** Decodifica Int16 [año][fila][col] a Float32 (NaN = faltante). */
+/** Decodifica Int16 [mes][fila][col] a Float32 (NaN = faltante). */
 function decode (buf, scale, offset, n) {
   const ints = new Int16Array(buf) // little-endian en todas las plataformas web actuales
   if (ints.length !== n) throw new Error(`Tamaño inesperado (${ints.length} ≠ ${n})`)
@@ -50,11 +58,11 @@ function decode (buf, scale, offset, n) {
 /**
  * Capa de datos (FieldSource). desc = { file, grid, scale, offset, wrap }.
  */
-export function loadLayer (desc, nyears) {
+export function loadLayer (desc, nmonths) {
   return once(desc.file, async () => {
     const buf = await (await fetchOk(desc.file)).arrayBuffer()
     const { nx, ny } = desc.grid
-    return createGridLayer(desc.grid, decode(buf, desc.scale, desc.offset ?? 0, nyears * nx * ny), nyears, { wrap: !!desc.wrap })
+    return createGridLayer(desc.grid, decode(buf, desc.scale, desc.offset ?? 0, nmonths * nx * ny), nmonths, { wrap: !!desc.wrap })
   })
 }
 /** La capa si ya terminó de cargar; si no, null. */

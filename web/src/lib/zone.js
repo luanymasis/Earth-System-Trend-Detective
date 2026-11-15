@@ -1,5 +1,5 @@
 // Media regional ponderada por área (∝ cos(lat)) de una caja lat/lon.
-// Porta `cellsIn` + `regionSeries` del prototipo. Sin imports: la usan el mock (Node) y la validación.
+// Porta `cellsIn` + `regionSeries` del prototipo. Sin imports: la usan la validación y el pipeline.
 // Ya no la usa la interfaz (Fase 3 §2).
 
 const D2R = Math.PI / 180

@@ -16,9 +16,9 @@ const yearIdx = computed(() => Math.round(app.yearF))
   <div class="ctl">
     <div class="ctlrow">
       <button class="btn brown" type="button" @click="app.togglePlay()">{{ app.playing ? '❚❚ Pausa' : '▶ Reproducir' }}</button>
-      <input type="range" :min="0" :max="app.nyears - 1" :value="yearIdx" aria-label="Año"
+      <input type="range" :min="0" :max="app.nmonths - 1" :value="yearIdx" aria-label="Mes"
              @input="app.setYear(+$event.target.value)">
-      <b>{{ app.years[0] + yearIdx }}</b>
+      <b>{{ app.dates[yearIdx] }}</b>
     </div>
     <div class="legend" :aria-label="`Escala de color: de ${lo} a ${hi} respecto a antes del evento`">
       <span>{{ lo }}</span><span class="g" :style="{ background: gradCSS(meta.palette) }"></span><span>{{ hi }}</span>

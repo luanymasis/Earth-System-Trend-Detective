@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useAppStore } from '../../stores/app.js'
 import { TYPES } from '../../lib/colors.js'
 import { plainVar, headline, spark, ICON } from '../../lib/eventText.js'
-import { YRS } from '../../lib/format.js'
+import { DUR } from '../../lib/format.js'
 import { NEWS } from '../../data/news.js'
 import EventSelect from './EventSelect.vue'
 
@@ -14,7 +14,7 @@ const cards = computed(() => !A.value ? [] : app.variables.map(v => {
   const r = A.value.R[v.id]
   return { v, P: plainVar(ev.value, v, r), svg: spark(ev.value, v, r, A.value) }
 }))
-const baseYears = computed(() => A.value ? A.value.pre[1] - A.value.pre[0] + 1 : 0)
+const baseMonths = computed(() => A.value ? A.value.pre[1] - A.value.pre[0] + 1 : 0)
 const news = computed(() => NEWS[ev.value?.id] ?? [])
 </script>
 
@@ -41,8 +41,8 @@ const news = computed(() => NEWS[ev.value?.id] ?? [])
         </div>
       </div>
       <p class="small note">
-        La franja gris es lo normal antes del evento; la línea punteada marca el año del evento.
-        <template v-if="baseYears < 4">Línea base corta ({{ YRS(baseYears) }}).</template>
+        La franja gris es lo normal antes del evento; la línea punteada marca el mes del evento.
+        <template v-if="baseMonths < 48">Línea base corta ({{ DUR(baseMonths, true) }}).</template>
         Asociación, no prueba de causa.
       </p>
       <div v-if="news.length" class="card">

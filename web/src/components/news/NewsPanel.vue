@@ -26,7 +26,7 @@ const list = computed(() => NEWS[ev.value?.id] ?? [])
       </article>
       <p v-if="!list.length" class="empty">Sin noticias para este evento.</p>
     </div>
-    <p class="small">Enlaces a medios externos; títulos traducidos y resúmenes propios.{{ app.partial ? ' Parte de los datos del mapa son simulados para la demo.' : (app.synthetic ? ' Los datos del mapa son simulados para la demo.' : '') }}</p>
+    <p class="small">Enlaces a medios externos; títulos traducidos y resúmenes propios.</p>
   </template>
 </template>
 

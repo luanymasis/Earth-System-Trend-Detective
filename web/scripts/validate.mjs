@@ -17,10 +17,18 @@ const WEB = join(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = join(WEB, 'public', 'data')
 const read = p => JSON.parse(readFileSync(join(DATA, p), 'utf8'))
 const M = read('manifest.json')
-const Y0 = M.years[0], VARS = M.variables
+const Y0 = Number(M.dates[0].slice(0, 4)), VARS = M.variables
 const S = Object.fromEntries(M.events.map(e => [e.id, read(e.series)]))
-const synth = v => v.synthetic ?? M.synthetic
-const tag = v => `${v.short}${synth(v) ? ' (simulada)' : ''}`
+// Keep validation in the original annual statistical unit.
+const annualize = a => Array.from({ length: Math.ceil(a.length / 12) }, (_, y) => {
+  const x = a.slice(y * 12, y * 12 + 12).filter(isNum)
+  return x.length ? x.reduce((s, v) => s + v, 0) / x.length : null
+})
+const AS = Object.fromEntries(M.events.map(e => [e.id, {
+  series: Object.fromEntries(Object.entries(S[e.id].series).map(([k, s]) => [k, { event: annualize(s.event), control: annualize(s.control) }])),
+  verify: Object.fromEntries(Object.entries(S[e.id].verify || {}).map(([k, s]) => [k, { ...s, event: annualize(s.event), control: annualize(s.control) }]))
+}]))
+const tag = v => v.short
 const pct = (a, b) => (b ? `${Math.round(100 * a / b)} %` : '—')
 const lines = []
 const out = s => lines.push(s)
@@ -28,7 +36,6 @@ const out = s => lines.push(s)
 out('# Validación del análisis de eventos')
 out('')
 out(`Generado por \`web/scripts/validate.mjs\` el ${new Date().toISOString().slice(0, 10)} con los datos de \`web/public/data\`.`)
-out(M.synthetic ? `\n> ⚠ El manifest tiene variables **simuladas**: ${VARS.filter(synth).map(v => v.short).join(', ') || '—'}. Sus resultados solo prueban el método, no la realidad.\n` : '')
 
 // ---------------------------------------------------------------- 1. placebo
 const FAKE = [2008, 2009, 2010, 2011]
@@ -41,7 +48,7 @@ for (const ev of M.events) {
   for (const fy of FAKE) {
     const fte = fy - Y0
     if (fte + 3 > cut) continue  // al menos 3 años tras el año falso
-    const series = Object.fromEntries(Object.entries(S[ev.id].series).map(([k, s]) => [k, { event: s.event.slice(0, cut), control: s.control.slice(0, cut) }]))
+    const series = Object.fromEntries(Object.entries(AS[ev.id].series).map(([k, s]) => [k, { event: s.event.slice(0, cut), control: s.control.slice(0, cut) }]))
     const A = analyzeEvent({ ...ev, year: fy, skip: 0 }, series, VARS, Y0)
     for (const v of VARS) {
       const r = A.R[v.id]
@@ -73,7 +80,7 @@ let nCmp = 0, nChg = 0
 for (const ev of M.events) {
   const te = ev.year - Y0, refo = ev.type === 'reforestacion', skip = ev.skip || 0
   for (const v of VARS) {
-    const s = S[ev.id].series[v.id]
+    const s = AS[ev.id].series[v.id]
     if (!s) continue
     const o = { te, refo, rel: !!v.rel, minsd: v.minsd }
     const r6 = analyzeVar(s.event, s.control, { ...o, pre: [Math.max(0, te - 6), te - 1 - skip] })
@@ -95,10 +102,10 @@ out('## 3. Verificación con GLDAS')
 out('')
 const vrows = []
 for (const ev of M.events) {
-  const ver = S[ev.id].verify || {}
+  const ver = AS[ev.id].verify || {}
   const te = ev.year - Y0, pre = [Math.max(0, te - 6), te - 1 - (ev.skip || 0)]
   for (const [vid, gid] of PAIRS) {
-    const v = VARS.find(x => x.id === vid), s = S[ev.id].series[vid], g = ver[gid]
+    const v = VARS.find(x => x.id === vid), s = AS[ev.id].series[vid], g = ver[gid]
     if (!v || !s || !g) continue
     const diff = (E, C, rel) => E.map((x, t) => (isNum(x) && isNum(C[t]) ? (rel ? (x / C[t] - 1) * 100 : x - C[t]) : null))
     const dV = diff(s.event, s.control, v.rel), dG = diff(g.event, g.control, v.rel)

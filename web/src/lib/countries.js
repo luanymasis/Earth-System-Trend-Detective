@@ -1,4 +1,4 @@
-// Datos puros (sin imports): se usan en el navegador y en scripts de Node (mock).
+// Datos puros (sin imports): se usan en el navegador y en scripts de Node.
 // Nombres en español por código ISO 3166-1 numérico (ids de world-atlas).
 export const NAMES_ES = {
   '004': 'Afganistán', '008': 'Albania', '010': 'Antártida', '012': 'Argelia', '024': 'Angola', '031': 'Azerbaiyán',

@@ -18,9 +18,7 @@ const TABS = [{ id: 'event', l: 'Evento' }, { id: 'news', l: 'Noticias' }, { id:
       <NewsPanel v-else-if="app.tab === 'news'" />
       <SimPanel v-else />
     </div>
-    <div class="foot">
-      Fuente: {{ app.meta?.product ?? '—' }}{{ app.metaSynthetic ? ' · Valores simulados para la demo; los eventos son reales.' : (app.partial ? ' · Datos reales' : '') }}
-    </div>
+    <div class="foot">Fuente: {{ app.meta?.product ?? '—' }}</div>
   </aside>
 </template>
 

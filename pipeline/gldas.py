@@ -4,7 +4,7 @@ PLAN_FASE3 §3.3 (humedad) y §3.4 (verificación). De cada archivo mensual se u
 
   SoilMoi0_10cm_inst  → `sm`            humedad del suelo 0–10 cm (variable principal de la UI)
   Rainf_f_tavg        → `gldas_precip`  precipitación total del forzamiento (verifica IMERG)
-  AvgSurfT_inst       → `gldas_skint`   temperatura de piel de la superficie (verifica la dirección de LST)
+  Tair_f_inst         → `gldas_skint`   temperatura del aire (verifica la dirección térmica de LST)
 
 Cada mes se reduce enseguida a (a) la media de cada caja de events.yaml y (b) una grilla de 1°,
 se guarda en pipeline/raw/gldas/monthly/AAAAMM.npz y el archivo crudo se borra. Es idempotente:
@@ -14,7 +14,7 @@ Uso (desde pipeline/):
   python gldas.py fetch --only 2016-05          # probar primero con un mes (regla 3 del plan)
   python gldas.py fetch --workers 4             # 2001-01 … 2024-12, solo los meses que falten
   python gldas.py local DIR                     # procesar .nc4 ya descargados (no los borra)
-  python gldas.py aggregate                     # medias anuales → pipeline/out/ + SOURCES.csv
+  python gldas.py aggregate                     # valores mensuales → pipeline/out/ + SOURCES.csv
 
 Credenciales de Earthdata Login (nunca en el repo), una de estas dos:
   - variable de entorno EARTHDATA_TOKEN (token de https://urs.earthdata.nasa.gov → Generate Token)
@@ -40,7 +40,7 @@ from urllib.parse import quote
 
 import numpy as np
 
-from common import NT, OUT, RAW, Y0, Y1, annual_mean, box_mean, load_events, nan_to_none, regions, today, upsert_sources, write_json
+from common import DATES, NM, OUT, RAW, Y0, Y1, box_mean, load_events, nan_to_none, regions, today, upsert_sources, write_json
 
 SHORT = "GLDAS_NOAH025_M"
 VERSION = "2.1"
@@ -54,9 +54,10 @@ OPENDAP = ("https://opendap.earthdata.nasa.gov/collections/" + COLLECTION +
 VARS = {
     "sm": ("SoilMoi0_10cm_inst", "primary", "m³/m³"),
     "gldas_precip": ("Rainf_f_tavg", "verify_precip", "mm/mes"),
-    "gldas_skint": ("AvgSurfT_inst", "verify_lst", "°C"),
+    # Keep the output id for frontend compatibility; the source is now the
+    # model's near-surface air temperature rather than skin temperature.
+    "gldas_skint": ("Tair_f_inst", "verify_lst", "°C"),
 }
-MIN_MONTHS = 10          # meses válidos para un año (§3.3)
 ICE_SM = 0.55            # m³/m³: por encima no es suelo (hielo glaciar: GLDAS llega a 1; la porosidad de Noah ≤ ~0.47)
 MIN_CELLS_1DEG = 8       # celdas de 0.25° válidas (de 16) para una celda de 1°
 GRID1 = {"res": 1, "lat0": 89.5, "lon0": -179.5, "nx": 360, "ny": 180}
@@ -274,15 +275,14 @@ def cmd_local(args) -> None:
         print(f"{y}-{m:02d} listo")
 
 
-# ---------------------------------------------------------------- agregación anual
+# ---------------------------------------------------------------- exportación mensual
 def cmd_aggregate(args) -> None:
     evs = load_events()
     regs = regions(evs)
     keys = list(regs)
-    nm = NT * 12
-    box = {v: np.full((nm, len(keys)), np.nan) for v in VARS}
-    cnt = {v: np.zeros((nm, len(keys)), dtype=int) for v in VARS}
-    grid = {v: np.full((nm, 180, 360), np.nan, dtype=np.float32) for v in VARS}
+    box = {v: np.full((NM, len(keys)), np.nan) for v in VARS}
+    cnt = {v: np.zeros((NM, len(keys)), dtype=int) for v in VARS}
+    grid = {v: np.full((NM, 180, 360), np.nan, dtype=np.float32) for v in VARS}
     missing, units_in, stale = [], {}, set()
     for k, (y, m) in enumerate(months(None)):
         p = MONTHLY / f"{y}{m:02d}.npz"
@@ -308,18 +308,16 @@ def cmd_aggregate(args) -> None:
 
     OUT.mkdir(parents=True, exist_ok=True)
     for v, (name, role, units) in VARS.items():
-        ann = annual_mean(box[v], MIN_MONTHS)
-        series = {key: {"y": nan_to_none(ann[:, j]), "n": int(np.median(cnt[v][:, j][cnt[v][:, j] > 0])) if (cnt[v][:, j] > 0).any() else 0}
+        series = {key: {"y": nan_to_none(box[v][:, j]), "n": int(np.median(cnt[v][:, j][cnt[v][:, j] > 0])) if (cnt[v][:, j] > 0).any() else 0}
                   for j, key in enumerate(keys)}
         write_json(OUT / f"series_{v}.json", {
-            "var": v, "role": role, "years": [Y0, Y1], "units": units,
+            "var": v, "role": role, "dates": DATES, "units": units,
             "tool": "GES DISC (OPeNDAP / HTTPS)", "product": f"{SHORT}.{VERSION}", "layer": name,
-            "min_months": MIN_MONTHS, "regions": series,
+            "regions": series,
         })
-        g = annual_mean(grid[v], MIN_MONTHS).astype(np.float32)
-        np.savez_compressed(OUT / f"grid_{v}.npz", data=g, grid=json.dumps(GRID1), units=units)
-        valid = sum(1 for s in series.values() if sum(x is not None for x in s["y"]) >= 20)
-        print(f"{v:13s} {role:14s} cajas con ≥ 20 años: {valid}/{len(keys)}")
+        np.savez_compressed(OUT / f"grid_{v}.npz", data=grid[v], grid=json.dumps(GRID1), units=units)
+        valid = sum(1 for s in series.values() if sum(x is not None for x in s["y"]) >= 240)
+        print(f"{v:13s} {role:14s} cajas con ≥ 240 meses: {valid}/{len(keys)}")
 
     period = f"{Y0}-01/{Y1}-12" if not missing else f"{Y0}-01/{Y1}-12 (faltan {len(missing)} meses)"
     upsert_sources([{
@@ -327,9 +325,9 @@ def cmd_aggregate(args) -> None:
         "layer": name, "region": "global 0.25° → cajas de events.yaml y grilla de 1°", "period": period,
         "units_in": units_in.get(v, ""), "conversion": {
             "sm": "kg/m² ÷ (1000·0,1 m) → m³/m³", "gldas_precip": "kg m-2 s-1 × 86400 × días del mes → mm/mes",
-            "gldas_skint": "K − 273,15 → °C"}[v],
+            "gldas_skint": "Tair_f_inst: K − 273,15 → °C"}[v],
         "request": HTTPS.replace("{y}", "AAAA").replace("{m:02d}", "MM"), "downloaded": today(),
-        "notes": f"media anual con ≥ {MIN_MONTHS} meses; caja = media ponderada por cos(lat)",
+        "notes": "valores mensuales; caja = media ponderada por cos(lat)",
     } for v, (name, role, _) in VARS.items()])
     print(f"Listo: {OUT} y SOURCES.csv")
 

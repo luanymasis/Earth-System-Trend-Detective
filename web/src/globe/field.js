@@ -6,15 +6,15 @@
 //   layer.build(s) → campo normalizado y suavizado 3×3 para pintar (porta buildField del prototipo)
 //   layer.fieldAt(fi, fj) → { t, a } (posición en la paleta y opacidad) por bilineal, o null
 //
-// Valores en Float32Array con orden [año][fila][columna] (fila 0 al norte), NaN = faltante.
+// Valores en Float32Array con orden [mes][fila][columna] (fila 0 al norte), NaN = faltante.
 
 /**
  * @param {{ res:number, lat0:number, lon0:number, nx:number, ny:number }} grid centro de la primera fila/columna
  * @param {Float32Array} values
- * @param {number} nyears
+ * @param {number} nmonths
  * @param {{ wrap?: boolean }} opts wrap = la grilla da la vuelta al globo en longitud
  */
-export function createGridLayer (grid, values, nyears, { wrap = false } = {}) {
+export function createGridLayer (grid, values, nmonths, { wrap = false } = {}) {
   const { res, lat0, lon0, nx, ny } = grid, nc = nx * ny
   const latN = lat0 + res / 2, latS = lat0 - res * (ny - 0.5)
   const lonW = lon0 - res / 2, lonE = lon0 + res * (nx - 0.5)
@@ -35,7 +35,7 @@ export function createGridLayer (grid, values, nyears, { wrap = false } = {}) {
 
   /** Diferencia de la celda c en el año fraccionario tf respecto a la media de base = [a, b]. */
   function cellAnom (c, tf, base, rel) {
-    const t0 = Math.floor(tf), t1 = Math.min(nyears - 1, t0 + 1), f = tf - t0
+    const t0 = Math.floor(tf), t1 = Math.min(nmonths - 1, t0 + 1), f = tf - t0
     let v0 = values[t0 * nc + c], v1 = values[t1 * nc + c]
     if (Number.isNaN(v1)) v1 = v0
     if (Number.isNaN(v0)) v0 = v1
