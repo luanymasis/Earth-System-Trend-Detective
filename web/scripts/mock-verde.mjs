@@ -312,7 +312,7 @@ for (const v of VARS.filter(v => v.layer === 'global')) {
 const manifest = {
   synthetic: true,
   years: [Y0, Y1],
-  variables: VARS.map(({ q, ...v }) => v),
+  variables: VARS.map(({ q, ...v }) => ({ ...v, synthetic: true })),
   events: manifestEvents,
   global,
   sources: []

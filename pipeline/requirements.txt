@@ -10,3 +10,5 @@ earthaccess>=0.9
 xarray>=2024.1
 netCDF4>=1.6
 geopandas>=0.14
+# Fase 3 (H6): events.yaml
+pyyaml>=6

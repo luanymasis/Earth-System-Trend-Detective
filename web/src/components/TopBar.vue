@@ -8,7 +8,8 @@ const app = useAppStore()
     <div class="brand">
       <svg width="26" height="26" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="13" fill="none" stroke="#606c38" stroke-width="2.2"/><path d="M15 24c0-7 1-11 7-15-1 6-3 10-7 15zm0 0c0-5-1-8-6-11 0 5 2 8 6 11z" fill="#606c38"/></svg>
       <h1>Pulso Verde</h1>
-      <small v-if="app.synthetic">Demo · datos simulados</small>
+      <small v-if="app.partial" :title="'Datos reales: ' + app.variables.filter(v => v.synthetic === false).map(v => v.short).join(', ')">Demo · datos en parte simulados</small>
+      <small v-else-if="app.synthetic">Demo · datos simulados</small>
     </div>
     <span class="sub">Impacto de la deforestación, los incendios y la reforestación, y cuánto tarda cada variable en restaurarse</span>
     <div class="vars" role="group" aria-label="Variable a mostrar">

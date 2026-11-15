@@ -203,6 +203,7 @@ Los resultados de ambas verificaciones van a `docs/VALIDATION.md`. En la UI apar
 }
 ```
 - `minsd` y `scale` son los valores del prototipo (`MINSD`, `scaleOf`).
+- *(Agregado en H6)* Cada variable lleva `"synthetic": true|false`. El `synthetic` global es `true` mientras quede alguna variable simulada; la UI muestra cuál es real en el pie del panel. `ctrl` puede traer `status` (`prototipo` | `provisional`) y `why`, copiados de `events.yaml`.
 - `rel: true` indica que la diferencia evento–control se calcula en %: `(E/C − 1) × 100`. En las demás variables se calcula como `E − C`.
 
 ### `events/{id}.json`
@@ -210,8 +211,11 @@ Los resultados de ambas verificaciones van a `docs/VALIDATION.md`. En la UI apar
 { "id": "rondonia",
   "series": { "tree":   { "event": [24 valores o null], "control": [24 valores o null], "n_event": 31500, "n_control": 29800 },
               "lst":    { "...": "..." }, "sm": { "...": "..." }, "precip": { "...": "..." } },
+  "verify": { "gldas_precip": { "role": "verify_precip", "product": "GLDAS_NOAH025_M.2.1", "layer": "Rainf_f_tavg", "units": "mm/mes", "event": [24], "control": [24] },
+              "gldas_skint":  { "role": "verify_lst", "...": "..." } },
   "stations": [ { "id": "…", "name": "…", "dist_km": 42, "inside": "event", "TAVG": [24], "PRCP": [24] } ] }
 ```
+*(Agregado en H6)* `verify` es opcional; lo usa `web/scripts/validate.mjs`, no la UI.
 
 ### Binarios
 - **Teselas y capa global:** Int16 little-endian, orden `[year][row][col]`, con `row` empezando en el norte.

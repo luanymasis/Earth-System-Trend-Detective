@@ -226,3 +226,5 @@ pipeline/raw/
 pipeline/*.nc
 # Datos generados por pipeline/mock.py o export.py (ver DECISIONS.md)
 web/public/data/
+# Pipeline de Fase 3: series y grillas intermedias (se regeneran con gldas.py aggregate, etc.)
+pipeline/out/

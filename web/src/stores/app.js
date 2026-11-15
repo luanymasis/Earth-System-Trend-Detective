@@ -30,6 +30,10 @@ export const useAppStore = defineStore('app', {
     years: s => s.manifest?.years ?? [0, 0],
     nyears: s => (s.manifest ? s.manifest.years[1] - s.manifest.years[0] + 1 : 0),
     synthetic: s => !!s.manifest?.synthetic,
+    /** Variable activa con datos simulados (por variable; manifests viejos sin la marca usan la global). */
+    metaSynthetic () { return this.meta ? (this.meta.synthetic ?? this.synthetic) : this.synthetic },
+    /** Hay variables reales y simuladas a la vez (PLAN_FASE3 §4, «synthetic» por variable). */
+    partial () { return this.synthetic && this.variables.some(v => v.synthetic === false) },
     /** Índice del año del evento seleccionado. */
     te () { return this.ev ? this.ev.year - this.years[0] : 0 },
     /** Línea base del globo: los 3 años previos al evento seleccionado (baseWin del prototipo). */
