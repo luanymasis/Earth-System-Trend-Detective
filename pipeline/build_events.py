@@ -1,0 +1,194 @@
+"""Une las series y grillas reales de pipeline/out/ en el contrato de datos.
+
+No calcula el análisis (vive solo en web/src/lib/event.js). Por cada variable del contrato:
+  - si hay pipeline/out/series_{var}.json con rol «primary» → se usan los datos reales;
+  - si no hay datos → las series quedan en null para que la aplicación pueda avisarlo.
+
+Las series de verificación (rol verify_*) van a events/{id}.json → "verify".
+
+Uso (desde pipeline/):
+  python build_events.py            # escribe en web/public/data/
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sys
+
+import numpy as np
+
+from common import DATES, NM, NT, OUT, SOURCES, WEB_DATA, Y0, Y1, load_events
+
+MISSING = -32768
+
+# Metadata of the variables in the web contract.
+VARS = [
+    {"id": "tree", "short": "Vegetación", "name": "Fracción de verdor", "noun": "la fracción de verdor", "units": "%", "unitsCh": "puntos",
+     "rel": False, "minsd": 0.6, "palette": "VEGDIV", "scale": 14, "layer": "global", "q": 0.01,
+     "product": "MERRA-2, NASA GES DISC", "source": {"tool": "GES DISC", "product": "M2TMNXLND.5.12.4", "layer": "GRN"}},
+    {"id": "lst", "short": "Temperatura", "name": "Temperatura del aire", "noun": "la temperatura del aire", "units": "°C", "unitsCh": "°C",
+     "rel": False, "minsd": 0.12, "palette": "RdBu", "scale": 1.5, "layer": "global", "q": 0.01,
+     "product": "GLDAS Noah 2.1, NASA GES DISC", "source": {"tool": "GES DISC", "product": "GLDAS_NOAH025_M.2.1", "layer": "Tair_f_inst"}},
+    {"id": "sm", "short": "Humedad", "name": "Humedad del suelo", "noun": "la humedad del suelo", "units": "m³/m³", "unitsCh": "m³/m³",
+     "rel": False, "minsd": 0.004, "palette": "BrBG", "scale": 0.03, "layer": "global", "q": 0.0001,
+     "product": "GLDAS Noah 2.1 (0–10 cm), NASA GES DISC", "source": {"tool": "GES DISC", "product": "GLDAS_NOAH025_M.2.1", "layer": "SoilMoi0_10cm_inst"}},
+    {"id": "precip", "short": "Precipitación", "name": "Precipitación", "noun": "la precipitación", "units": "mm/mes", "unitsCh": "%",
+     "rel": True, "minsd": 2.5, "palette": "BrBG", "scale": 25, "layer": "global", "q": 0.1,
+     "product": "GPM IMERG mensual, vía Giovanni", "source": {"tool": "Giovanni", "product": "GPM_3IMERGM v07", "layer": "precipitation"}},
+]
+
+
+def rbox(b: dict) -> dict:
+    return {k: round(v, 3) for k, v in b.items()}
+
+
+def same_box(a: dict | None, b: dict, tol: float = 0.01) -> bool:
+    return a is not None and all(abs(a[k] - b[k]) <= tol for k in ("la0", "la1", "lo0", "lo1"))
+
+
+def r5(x):
+    return None if x is None else round(x, 5)
+
+
+def monthly_values(values: list, dates: list | None = None) -> list:
+    """Normaliza series anuales al contrato mensual."""
+    if dates == DATES and len(values) == NM:
+        return values
+    if len(values) == NT:
+        return [x for year in values for x in [year] * 12]
+    return values
+
+
+def load_real() -> tuple[dict, dict]:
+    """{var: series_json} con rol primary y {verify_id: series_json}."""
+    prim, ver = {}, {}
+    for p in sorted(OUT.glob("series_*.json")):
+        s = json.loads(p.read_text(encoding="utf-8"))
+        dates = s.get("dates")
+        if dates != DATES:
+            if s.get("years") == [Y0, Y1] and len(s["regions"]) and len(next(iter(s["regions"].values()))["y"]) == NT:
+                s["dates"] = DATES
+                for region in s["regions"].values():
+                    region["y"] = monthly_values(region["y"], s.get("years"))
+            else:
+                sys.exit(f"{p.name}: fechas distintas del período mensual {DATES[0]}–{DATES[-1]}")
+        if s["role"] == "primary":
+            prim[s["var"]] = s
+        else:
+            ver[s["var"]] = s
+            # GLDAS precipitation is also the globe fallback when the
+            # dedicated primary precipitation source is unavailable.
+            if s["var"] == "gldas_precip" and "precip" not in prim:
+                prim["precip"] = s
+    return prim, ver
+
+
+def write_grid(path, data: np.ndarray, q: float) -> int:
+    buf = np.where(np.isfinite(data), np.clip(np.round(data / q), -32767, 32767), MISSING).astype("<i2")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(buf.tobytes())
+    return buf.nbytes
+
+
+def main(argv=None) -> None:
+    ap = argparse.ArgumentParser()
+    ap.parse_args(argv)
+
+    evs = load_events()
+    prim, ver = load_real()
+    contract_ids = {v["id"] for v in VARS}
+    for vid in prim:
+        if vid not in contract_ids:
+            sys.exit(f"series_{vid}.json tiene rol primary pero «{vid}» no es una variable del contrato")
+
+    mpath = WEB_DATA / "manifest.json"
+    variables, bytes_total = [], 0
+    for v in VARS:
+        out = {k: x for k, x in v.items() if k != "q"}
+        if v["id"] in prim:
+            s = prim[v["id"]]
+            out["source"] = {"tool": s["tool"], "product": s["product"], "layer": s["layer"]}
+        variables.append(out)
+
+    (WEB_DATA / "events").mkdir(parents=True, exist_ok=True)
+    m_events, warnings = [], []
+    for e in evs:
+        eid = e["id"]
+        series = {}
+        for v in VARS:
+            vid = v["id"]
+            if vid in prim:
+                rE, rC = prim[vid]["regions"].get(f"{eid}:E"), prim[vid]["regions"].get(f"{eid}:C")
+                if rE is None or rC is None:
+                    warnings.append(f"{eid}: {vid} sin caja en series_{vid}.json (¿cambió events.yaml? vuelve a procesar)")
+                series[vid] = {"event": [r5(x) for x in monthly_values((rE or {"y": [None] * NM})["y"], prim[vid].get("dates"))],
+                               "control": [r5(x) for x in monthly_values((rC or {"y": [None] * NM})["y"], prim[vid].get("dates"))],
+                               "n_event": (rE or {}).get("n", 0), "n_control": (rC or {}).get("n", 0)}
+            else:
+                series[vid] = {"event": [None] * NM, "control": [None] * NM, "n_event": 0, "n_control": 0}
+        verify = {}
+        for vid, s in ver.items():
+            rE, rC = s["regions"].get(f"{eid}:E"), s["regions"].get(f"{eid}:C")
+            if rE and rC:
+                verify[vid] = {"role": s["role"], "product": s["product"], "layer": s["layer"], "units": s["units"],
+                               "event": [r5(x) for x in monthly_values(rE["y"], s.get("dates"))],
+                               "control": [r5(x) for x in monthly_values(rC["y"], s.get("dates"))]}
+        doc = {"id": eid, "series": series, "verify": verify, "stations": []}
+        txt = json.dumps(doc, ensure_ascii=False)
+        (WEB_DATA / "events" / f"{eid}.json").write_text(txt, encoding="utf-8")
+        bytes_total += len(txt.encode())
+
+        tiles = []
+        la, lo = e["center"]; cla, clo = e["control"]["center"]
+        m_events.append({
+            "id": eid, "type": e["type"], "name": e["name"], "place": e["place"], "desc": e.get("desc", ""),
+            "lat": la, "lon": lo, "r": e["r"], "year": e["year"], "month": e.get("month", 1),
+            "skip": e.get("skip", 0), "box": rbox(e["box"]),
+            "ctrl": {"name": e["control"]["name"], "lat": cla, "lon": clo, "box": rbox(e["ctrl_box"]),
+                     "status": e["control"].get("status", ""), "why": e["control"].get("why", "")},
+            "series": f"events/{eid}.json", "tiles": tiles,
+        })
+
+    glob = []
+    for v in VARS:
+        vid = v["id"]
+        if v["layer"] != "global":
+            continue
+        source_id = prim.get(vid, {}).get("var", vid)
+        gp = OUT / f"grid_{source_id}.npz"
+        if vid in prim and gp.exists():
+            z = np.load(gp)
+            grid = json.loads(str(z["grid"]))
+            data = z["data"]
+            if data.shape != (NM, grid["ny"], grid["nx"]):
+                if data.shape == (NT, grid["ny"], grid["nx"]):
+                    data = np.repeat(data, 12, axis=0)
+                else:
+                    sys.exit(f"{gp.name}: forma {data.shape} ≠ ({NM}, {grid['ny']}, {grid['nx']})")
+            file = f"global/{vid}.bin"
+            bytes_total += write_grid(WEB_DATA / file, data, v["q"])
+            glob.append({"var": vid, "grid": grid, "file": file, "scale": v["q"], "offset": 0})
+
+    sources = []
+    if SOURCES.exists():
+        with SOURCES.open(encoding="utf-8", newline="") as f:
+            sources = list(csv.DictReader(f))
+
+    manifest = {
+        "dates": DATES,
+        "years": [Y0, Y1],
+        "variables": variables,
+        "events": m_events,
+        "global": glob,
+        "sources": sources,
+    }
+    mpath.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    for w in warnings:
+        print("⚠", w)
+    print("Variables:", ", ".join(f"{v['id']}={'real' if v['id'] in prim else 'sin datos'}" for v in variables))
+    print(f"Listo: {WEB_DATA} (+{bytes_total / 1e6:.1f} MB escritos)")
+
+
+if __name__ == "__main__":
+    main()

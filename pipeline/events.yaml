@@ -1,0 +1,128 @@
+# Eventos de Pulso Verde (PLAN_FASE3 §3.1). Fuente única de verdad del pipeline.
+# Caja: ±r° de latitud y ±r/cos(lat)° de longitud alrededor de `center` [lat, lon].
+# La caja de comparación usa el mismo `r` que el evento.
+#
+# control.status:
+#   prototipo  → elegido a mano en el prototipo (Rondônia, Kalimantan)
+#   provisional → elegido provisionalmente y pendiente de confirmación
+#                 con check_controls.py cuando estén las series reales de cobertura (VCF) y lluvia.
+
+- id: rondonia
+  type: deforestacion
+  name: Pico de deforestación en Rondônia
+  place: Rondônia, Brasil
+  desc: "Entre 2003 y 2006 la deforestación en Rondônia alcanzó máximos por la expansión ganadera y de soya. Las áreas taladas en su mayoría no se regeneraron."
+  year: 2004
+  skip: 0
+  center: [-10.8, -62.8]
+  r: 2.2
+  control:
+    name: Amazonas, Brasil
+    center: [-4.5, -65.0]
+    status: prototipo
+    why: Bosque húmedo similar, sin deforestación grande en 2001–2024
+
+- id: chaco
+  type: deforestacion
+  name: Desmonte ganadero en el Chaco
+  place: Chaco paraguayo
+  desc: "Desde 2008 el desmonte para ganadería se aceleró en el Chaco seco paraguayo, con pérdida de bosque persistente."
+  year: 2008
+  skip: 0
+  center: [-21.7, -60.6]
+  r: 1.8
+  control:
+    name: Chaco argentino
+    center: [-28.2, -61.6]
+    status: provisional
+    why: Bosque seco chaqueño; candidato de findControl sobre datos disponibles
+
+- id: borneo
+  type: incendio
+  name: Incendios de 2015 en Kalimantan
+  place: Kalimantan, Indonesia
+  desc: "Durante El Niño de 2015, incendios en turberas y bosques arrasaron grandes áreas de Kalimantan. Parte de la vegetación se regenera desde entonces."
+  year: 2015
+  skip: 0
+  center: [0.5, 114.0]
+  r: 2.2
+  control:
+    name: Papúa, Indonesia
+    center: [-4.5, 139.0]
+    status: prototipo
+    why: Bosque tropical húmedo con menos incendios en 2015
+
+- id: australia
+  type: incendio
+  name: Incendios del "Verano Negro"
+  place: Sureste de Australia
+  desc: "Tras la sequía de 2019, los incendios de 2019–2020 quemaron millones de hectáreas en Nueva Gales del Sur y Victoria. Los eucaliptos rebrotan rápido."
+  year: 2020
+  skip: 1
+  center: [-35.8, 149.0]
+  r: 1.8
+  control:
+    name: Victoria central, Australia
+    center: [-37.8, 145.0]
+    status: provisional
+    why: Candidato de findControl sobre datos disponibles; revisar que no ardió en 2019–2020
+
+- id: chiquitania
+  type: incendio
+  name: Incendios en la Chiquitanía
+  place: Chiquitanía, Bolivia
+  desc: "En 2019 los incendios en el bosque seco chiquitano de Bolivia fueron de los más extensos de su historia."
+  year: 2019
+  skip: 0
+  center: [-16.6, -60.6]
+  r: 1.6
+  control:
+    name: Mato Grosso, Brasil
+    center: [-17.1, -55.6]
+    status: provisional
+    why: Candidato de findControl sobre datos disponibles; revisar incendios de 2019 y 2020
+
+- id: mata
+  type: reforestacion
+  name: Pacto por la Restauración de la Mata Atlántica
+  place: Mata Atlántica, Brasil
+  desc: "En 2009 gobiernos, empresas y ONG lanzaron un pacto para restaurar millones de hectáreas del bosque atlántico."
+  year: 2009
+  skip: 0
+  center: [-22.6, -45.6]
+  r: 1.8
+  control:
+    name: Santa Catarina, Brasil
+    center: [-27.6, -49.6]
+    status: provisional
+    why: Candidato de findControl sobre datos disponibles
+
+- id: kp
+  type: reforestacion
+  name: '"Tsunami de mil millones de árboles"'
+  place: Khyber Pakhtunkhwa, Pakistán
+  desc: "Entre 2014 y 2017 la provincia de Khyber Pakhtunkhwa plantó y regeneró bosques en cientos de miles de hectáreas."
+  year: 2014
+  skip: 0
+  center: [34.6, 72.3]
+  r: 1.6
+  control:
+    name: Xinjiang occidental, China
+    center: [37.1, 75.8]
+    status: provisional
+    why: Candidato de findControl sobre datos disponibles; clima muy distinto, buscar uno mejor
+
+- id: ethiopia
+  type: reforestacion
+  name: Legado Verde de Etiopía
+  place: Tierras altas de Etiopía
+  desc: "Desde 2019, la iniciativa Legado Verde moviliza campañas masivas de plantación de árboles en las tierras altas etíopes."
+  year: 2019
+  skip: 0
+  center: [9.6, 38.6]
+  r: 1.6
+  control:
+    name: Este de Etiopía
+    center: [9.1, 43.6]
+    status: provisional
+    why: Candidato de findControl sobre datos disponibles; mucho más seco, buscar uno mejor

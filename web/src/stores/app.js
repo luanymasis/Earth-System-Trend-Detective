@@ -1,0 +1,162 @@
+import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
+import { loadManifest, loadEventSeries, loadLayer, peekLayer, layerDescs } from '../lib/loader.js'
+import { km } from '../lib/names.js'
+import { analyzeEvent } from '../lib/event.js'
+import { empirical } from '../lib/sim.js'
+
+// Estado global de Pulso Verde (Fase 3 §6).
+export const useAppStore = defineStore('app', {
+  state: () => ({
+    manifest: null,
+    loadError: null,
+    dataWarning: null,
+    variableId: 'tree',
+    eventId: null,
+    eventType: 'all',
+    yearF: 0, // índice mensual fraccionario que muestra el globo
+    playing: false,
+    tab: 'event', // 'event' | 'news' | 'sim'
+    sim: { act: 'deforestacion', M: 20, regen: true },
+    series: {}, // events/{id}.json por id (markRaw)
+    layers: [], // capas (FieldSource) visibles de la variable activa (markRaw)
+    layersLoading: false,
+    view: { lon0: -62, lat0: -12, zoom: 1.6 }, // vista inicial; el renderer la mantiene durante la interacción
+    flyTarget: null // { lat, lon, zoom, t }
+  }),
+  getters: {
+    variables: s => s.manifest?.variables ?? [],
+    events: s => s.manifest?.events ?? [],
+    visibleEvents: s => s.eventType === 'all' ? s.manifest?.events ?? [] : (s.manifest?.events ?? []).filter(e => e.type === s.eventType),
+    meta: s => s.manifest?.variables.find(v => v.id === s.variableId) ?? null,
+    ev: s => s.manifest?.events.find(e => e.id === s.eventId) ?? null,
+    dates: s => s.manifest?.dates ?? [],
+    years: s => {
+      if (s.manifest?.years) return s.manifest.years
+      const first = s.manifest?.dates?.[0]
+      const last = s.manifest?.dates?.at(-1)
+      return first && last ? [Number(first.slice(0, 4)), Number(last.slice(0, 4))] : [0, 0]
+    },
+    nyears: s => s.manifest?.dates ? s.manifest.dates.length : (s.manifest ? s.manifest.years[1] - s.manifest.years[0] + 1 : 0),
+    nmonths: s => s.manifest?.dates?.length ?? 0,
+    /** Índice mensual del evento seleccionado. */
+    te () { return this.ev ? (this.ev.year - this.years[0]) * 12 + (this.ev.month || 1) - 1 : 0 },
+    /** Línea base del globo: los 3 años previos al evento seleccionado. */
+    baseWin () { const te = this.te; return [Math.max(0, te - 36), Math.max(0, te - 1)] },
+    date () { return this.dates[Math.round(this.yearF)] ?? '' },
+    /** Análisis de cada evento con series cargadas: { id: { te, pre, R } } */
+    analyses () {
+      const out = {}
+      for (const ev of this.events) { const s = this.series[ev.id]; if (s) out[ev.id] = analyzeEvent(ev, s.series, this.variables, this.years[0], { monthly: true }) }
+      return out
+    },
+    A () { return this.ev ? this.analyses[this.ev.id] ?? null : null },
+    /** Relaciones aprendidas para Simular (cuando ya están todas las series). */
+    emp () {
+      const list = this.events.filter(e => this.analyses[e.id]).map(ev => ({ ev, A: this.analyses[ev.id] }))
+      return list.length === this.events.length && list.length ? empirical(list, this.variables) : null
+    }
+  },
+  actions: {
+    async init () {
+      try {
+        this.manifest = markRaw(await loadManifest())
+        // ?var=precip&ev=borneo&tab=news (enlaces directos para la demo y las capturas)
+        const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '')
+        if (!this.manifest.variables.length) throw new Error('No hay variables disponibles')
+        const requestedVar = q.get('var')
+        const hasLayer = id => this.manifest.global?.some(g => g.var === id) ||
+          this.manifest.events.some(e => e.tiles?.some(t => t.files?.[id]))
+        if (this.manifest.variables.some(v => v.id === requestedVar)) this.variableId = requestedVar
+        else if (!this.manifest.variables.some(v => v.id === this.variableId) || !hasLayer(this.variableId)) {
+          this.variableId = this.manifest.variables.find(v => hasLayer(v.id))?.id ?? this.manifest.variables[0].id
+        }
+        if (['event', 'news', 'sim'].includes(q.get('tab'))) this.tab = q.get('tab')
+        const first = this.manifest.events.find(e => e.id === q.get('ev')) ?? this.manifest.events[0]
+        if (!first) throw new Error('No hay eventos disponibles')
+        this.selectEvent(first.id)
+        this.loadAllSeries()
+      } catch (err) {
+        this.loadError = err.message
+      }
+    },
+    /** Carga en segundo plano las series de todos los eventos (Simular aprende de todos). */
+    async loadAllSeries () {
+      await Promise.all(this.manifest.events.map(async ev => {
+        try {
+          const s = await loadEventSeries(ev)
+          if (!this.series[ev.id]) this.series = { ...this.series, [ev.id]: markRaw(s) }
+        } catch (err) {
+          this.series = { ...this.series, [ev.id]: null }
+          this.dataWarning = 'Los datos del evento no están disponibles.'
+          console.warn(err.message)
+        }
+      }))
+    },
+    setVariable (id) { this.dataWarning = null; this.variableId = id; this.refreshLayers() },
+    setEventType (type) {
+      this.eventType = type
+      if (this.eventId && type !== 'all' && this.ev?.type !== type) {
+        this.selectEvent(this.visibleEvents[0]?.id)
+      }
+    },
+    /** Capas visibles: las del evento seleccionado (se cargan) + las de otros eventos ya cargadas. */
+    async refreshLayers () {
+      const M = this.manifest, ev = this.ev, id = this.variableId
+      if (!M || !ev) return
+      const mine = layerDescs(M, id, ev)
+      const others = M.events.filter(e => e !== ev).flatMap(e => layerDescs(M, id, e)).filter(d => !mine.some(m => m.file === d.file))
+      if (!mine.length) {
+        this.layers = []
+        this.layersLoading = false
+        this.dataWarning = 'Los datos de esta variable no están disponibles.'
+        return
+      }
+      const assemble = () => {
+        const all = [...mine, ...others].map(peekLayer).filter(Boolean)
+        // teselas antes que la capa global
+        all.sort((a, b) => Number(a.wrap) - Number(b.wrap))
+        this.layers = markRaw(all)
+      }
+      assemble()
+      this.layersLoading = true
+      try {
+        await Promise.all(mine.map(d => loadLayer(d, this.nmonths)))
+      } catch (err) {
+        this.dataWarning = 'Los datos de esta capa no están disponibles.'
+        console.warn(err.message)
+      } finally {
+        if (this.variableId === id && this.ev === ev) { assemble(); this.layersLoading = false }
+      }
+    },
+    selectEvent (id) {
+      const ev = this.manifest.events.find(e => e.id === id)
+      if (!ev) return
+      this.dataWarning = null
+      this.eventId = id
+      this.stopPlay()
+      this.yearF = Math.min(this.nmonths - 1, (ev.year - this.years[0]) * 12 + (ev.month || 1) - 1)
+      if (this.tab !== 'news') this.tab = 'event'
+      const c = ev.ctrl ?? ev
+      const lon = ev.lon + ((((c.lon - ev.lon) + 540) % 360) - 180) / 2
+      const zoom = Math.max(1.4, Math.min(2.6, 3200 / Math.max(600, km(ev, c))))
+      this.flyTarget = { lat: (ev.lat + c.lat) / 2, lon, zoom, t: Date.now() }
+      this.refreshLayers()
+    },
+    setTab (tab) { this.tab = tab },
+    setYear (t) { this.stopPlay(); this.yearF = t },
+    togglePlay () {
+      if (this.playing) { this.stopPlay(); return }
+      if (this.yearF >= this.nmonths - 1) this.yearF = Math.max(0, this.te - 36)
+      this.playing = true
+    },
+    stopPlay () { this.playing = false },
+    clearDataWarning () { this.dataWarning = null },
+    /** Avanza la reproducción (llamado en cada cuadro por el globo). */
+    stepPlay (dt) {
+      if (!this.playing) return
+      const next = this.yearF + dt * 4.5
+      if (next >= this.nmonths - 1) { this.yearF = this.nmonths - 1; this.playing = false } else this.yearF = next
+    }
+  }
+})
