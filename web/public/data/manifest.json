@@ -297,39 +297,39 @@
   {
    "id": "tree",
    "short": "Vegetación",
-   "name": "Cobertura arbórea",
-   "noun": "la cobertura arbórea",
+   "name": "Fracción de verdor",
+   "noun": "la fracción de verdor",
    "units": "%",
    "unitsCh": "puntos",
    "rel": false,
    "minsd": 0.6,
    "palette": "VEGDIV",
    "scale": 14,
-   "layer": "tiles",
-   "product": "MODIS VCF (MOD44B), vía AppEEARS",
+   "layer": "global",
+   "product": "MERRA-2, NASA GES DISC",
    "source": {
-    "tool": "AppEEARS",
-    "product": "MOD44B.061",
-    "layer": "Percent_Tree_Cover"
+    "tool": "GES DISC (OPeNDAP / HTTPS)",
+    "product": "M2TMNXLND.5.12.4",
+    "layer": "GRN"
    }
   },
   {
    "id": "lst",
    "short": "Temperatura",
-   "name": "Temperatura de superficie (día)",
-   "noun": "la temperatura de superficie",
+   "name": "Temperatura del aire",
+   "noun": "la temperatura del aire",
    "units": "°C",
    "unitsCh": "°C",
    "rel": false,
    "minsd": 0.12,
    "palette": "RdBu",
    "scale": 1.5,
-   "layer": "tiles",
-   "product": "MODIS LST (MOD11), vía AppEEARS",
+   "layer": "global",
+   "product": "GLDAS Noah 2.1, NASA GES DISC",
    "source": {
-    "tool": "AppEEARS",
-    "product": "MOD11B3.061",
-    "layer": "LST_Day_6km"
+    "tool": "GES DISC (OPeNDAP / HTTPS)",
+    "product": "GLDAS_NOAH025_M.2.1",
+    "layer": "Tair_f_inst"
    }
   },
   {
@@ -365,9 +365,9 @@
    "layer": "global",
    "product": "GPM IMERG mensual, vía Giovanni",
    "source": {
-    "tool": "Giovanni",
-    "product": "GPM_3IMERGM v07",
-    "layer": "precipitation"
+    "tool": "GES DISC (OPeNDAP / HTTPS)",
+    "product": "GLDAS_NOAH025_M.2.1",
+    "layer": "Rainf_tavg"
    }
   }
  ],
@@ -647,6 +647,32 @@
  ],
  "global": [
   {
+   "var": "tree",
+   "grid": {
+    "res": 1,
+    "lat0": 89.5,
+    "lon0": -179.5,
+    "nx": 360,
+    "ny": 180
+   },
+   "file": "global/tree.bin",
+   "scale": 0.01,
+   "offset": 0
+  },
+  {
+   "var": "lst",
+   "grid": {
+    "res": 1,
+    "lat0": 89.5,
+    "lon0": -179.5,
+    "nx": 360,
+    "ny": 180
+   },
+   "file": "global/lst.bin",
+   "scale": 0.01,
+   "offset": 0
+  },
+  {
    "var": "sm",
    "grid": {
     "res": 1,
@@ -657,6 +683,19 @@
    },
    "file": "global/sm.bin",
    "scale": 0.0001,
+   "offset": 0
+  },
+  {
+   "var": "precip",
+   "grid": {
+    "res": 1,
+    "lat0": 89.5,
+    "lon0": -179.5,
+    "nx": 360,
+    "ny": 180
+   },
+   "file": "global/precip.bin",
+   "scale": 0.1,
    "offset": 0
   }
  ],
@@ -680,7 +719,7 @@
    "role": "verify_precip",
    "tool": "GES DISC (OPeNDAP en la nube o HTTPS)",
    "product": "GLDAS_NOAH025_M.2.1 (C1342986036-GES_DISC)",
-   "layer": "Rainf_f_tavg",
+   "layer": "Rainf_tavg",
    "region": "global 0.25° → cajas de events.yaml y grilla de 1°",
    "period": "2001-01/2024-12",
    "units_in": "kg m-2 s-1",
@@ -690,8 +729,8 @@
    "notes": "valores mensuales; caja = media ponderada por cos(lat)"
   },
   {
-   "var": "gldas_skint",
-   "role": "verify_lst",
+   "var": "lst",
+   "role": "primary",
    "tool": "GES DISC (OPeNDAP en la nube o HTTPS)",
    "product": "GLDAS_NOAH025_M.2.1 (C1342986036-GES_DISC)",
    "layer": "Tair_f_inst",
@@ -700,6 +739,62 @@
    "units_in": "K",
    "conversion": "Tair_f_inst: K − 273,15 → °C",
    "request": "https://data.gesdisc.earthdata.nasa.gov/data/GLDAS/GLDAS_NOAH025_M.2.1/AAAA/GLDAS_NOAH025_M.AAAAAMM.021.nc4",
+   "downloaded": "2026-11-15",
+   "notes": "valores mensuales; caja = media ponderada por cos(lat)"
+  },
+  {
+   "var": "sm",
+   "role": "primary",
+   "tool": "GES DISC (OPeNDAP en la nube o HTTPS)",
+   "product": "GLDAS_NOAH025_M.2.1 (C1342986036-GES_DISC)",
+   "layer": "SoilMoi0_10cm_inst",
+   "region": "global → cajas de events.yaml y grilla de 1°",
+   "period": "2001-01/2024-12",
+   "units_in": "kg m-2",
+   "conversion": "kg/m² ÷ (1000·0,1 m) → m³/m³",
+   "request": "https://data.gesdisc.earthdata.nasa.gov/data/GLDAS/GLDAS_NOAH025_M.2.1/AAAA/GLDAS_NOAH025_M.AAAAAMM.021.nc4",
+   "downloaded": "2026-11-15",
+   "notes": "valores mensuales; caja = media ponderada por cos(lat)"
+  },
+  {
+   "var": "gldas_precip",
+   "role": "verify_precip",
+   "tool": "GES DISC (OPeNDAP en la nube o HTTPS)",
+   "product": "GLDAS_NOAH025_M.2.1 (C1342986036-GES_DISC)",
+   "layer": "Rainf_tavg",
+   "region": "global → cajas de events.yaml y grilla de 1°",
+   "period": "2001-01/2024-12",
+   "units_in": "kg m-2 s-1",
+   "conversion": "kg m-2 s-1 × 86400 × días del mes → mm/mes",
+   "request": "https://data.gesdisc.earthdata.nasa.gov/data/GLDAS/GLDAS_NOAH025_M.2.1/AAAA/GLDAS_NOAH025_M.AAAAAMM.021.nc4",
+   "downloaded": "2026-11-15",
+   "notes": "valores mensuales; caja = media ponderada por cos(lat)"
+  },
+  {
+   "var": "lst",
+   "role": "primary",
+   "tool": "GES DISC (OPeNDAP en la nube o HTTPS)",
+   "product": "GLDAS_NOAH025_M.2.1 (C1342986036-GES_DISC)",
+   "layer": "Tair_f_inst",
+   "region": "global → cajas de events.yaml y grilla de 1°",
+   "period": "2001-01/2024-12",
+   "units_in": "K",
+   "conversion": "Tair_f_inst: K − 273,15 → °C",
+   "request": "https://data.gesdisc.earthdata.nasa.gov/data/GLDAS/GLDAS_NOAH025_M.2.1/AAAA/GLDAS_NOAH025_M.AAAAAMM.021.nc4",
+   "downloaded": "2026-11-15",
+   "notes": "valores mensuales; caja = media ponderada por cos(lat)"
+  },
+  {
+   "var": "tree",
+   "role": "primary",
+   "tool": "GES DISC (OPeNDAP en la nube o HTTPS)",
+   "product": "M2TMNXLND.5.12.4 (C1276812856-GES_DISC)",
+   "layer": "GRN",
+   "region": "global → cajas de events.yaml y grilla de 1°",
+   "period": "2001-01/2024-12",
+   "units_in": "1",
+   "conversion": "GRN: fracción 0–1 × 100 → %",
+   "request": "https://data.gesdisc.earthdata.nasa.gov/data/MERRA2_MONTHLY/M2TMNXLND.5.12.4/AAAA/MERRA2_300/400.tavgM_2d_lnd_Nx.AAAAMM.nc4",
    "downloaded": "2026-11-15",
    "notes": "valores mensuales; caja = media ponderada por cos(lat)"
   }
