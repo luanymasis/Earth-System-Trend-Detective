@@ -64,6 +64,9 @@ VARS = {
 }
 TREE_VAR = ("GRN", "primary", "%")
 ALL_VARS = {**VARS, "tree": TREE_VAR}
+# Cachés mensuales de una versión anterior (sin meta["source_vars"]): guardaban Rainf_f_tavg y AvgSurfT_inst
+# (como «gldas_skint»). No coinciden con las capas actuales, así que esos meses se deben volver a procesar.
+LEGACY_SOURCE_VARS = {"sm": "SoilMoi0_10cm_inst", "gldas_precip": "Rainf_f_tavg", "gldas_skint": "AvgSurfT_inst"}
 ICE_SM = 0.55            # m³/m³: por encima no es suelo (hielo glaciar: GLDAS llega a 1; la porosidad de Noah ≤ ~0.47)
 MIN_CELLS_1DEG = 8       # GLDAS: celdas de 0.25° válidas (de 16) para una celda de 1°
 MIN_CELLS_MERRA_1DEG = 2 # MERRA-2: al menos la mitad de sus ~4 celdas por celda de 1°
@@ -201,13 +204,20 @@ def save_month(y: int, m: int, res: dict, regs: dict, source: str) -> None:
     os.replace(tmp, MONTHLY / f"{y}{m:02d}.npz")
 
 
+def source_vars(meta: dict) -> dict:
+    """Capa de origen de cada variable guardada en un mes (las cachés antiguas no la registraban)."""
+    return meta.get("source_vars") or LEGACY_SOURCE_VARS
+
+
 def month_done(y: int, m: int, regs: dict, require_tree: bool = True) -> bool:
     p = MONTHLY / f"{y}{m:02d}.npz"
     if not p.exists():
         return False
     meta = json.loads(str(np.load(p)["meta"]))
     boxes_ok = all(meta["boxes"].get(k) == b for k, b in regs.items())
-    return boxes_ok and (not require_tree or meta.get("source_vars", {}).get("tree") == TREE_VAR[0])
+    src = source_vars(meta)
+    gldas_ok = all(src.get(vid) == name for vid, (name, _, _) in VARS.items())
+    return boxes_ok and gldas_ok and (not require_tree or src.get("tree") == TREE_VAR[0])
 
 
 # ---------------------------------------------------------------- descarga
@@ -390,6 +400,7 @@ def cmd_aggregate(args) -> None:
     cnt = {v: np.zeros((NM, len(keys)), dtype=int) for v in ALL_VARS}
     grid = {v: np.full((NM, 180, 360), np.nan, dtype=np.float32) for v in ALL_VARS}
     missing, units_in, stale = [], {}, set()
+    wrong = {v: [] for v in ALL_VARS}  # meses cuya caché trae otra capa de origen
     for k, (y, m) in enumerate(months(None)):
         p = MONTHLY / f"{y}{m:02d}.npz"
         if not p.exists():
@@ -397,21 +408,26 @@ def cmd_aggregate(args) -> None:
             continue
         z = np.load(p)
         meta = json.loads(str(z["meta"]))
-        units_in.update(meta["units_in"])
-        for v in ALL_VARS:
-            raw_v = "gldas_skint" if v == "lst" and f"grid_{v}" not in z else v
-            if f"grid_{raw_v}" not in z:
+        src = source_vars(meta)
+        for v, (name, _, _) in ALL_VARS.items():
+            if f"grid_{v}" not in z or src.get(v) != name:
+                wrong[v].append(f"{y}-{m:02d}")
                 continue
-            grid[v][k] = z[f"grid_{raw_v}"]
+            units_in[v] = meta["units_in"].get(v, "")
+            grid[v][k] = z[f"grid_{v}"]
             for j, key in enumerate(keys):
                 if key in meta["regions"] and meta["boxes"][key] == regs[key]:
                     i = meta["regions"].index(key)
-                    box[v][k, j] = z[f"box_{raw_v}"][i]
-                    cnt[v][k, j] = z[f"n_{raw_v}"][i]
+                    box[v][k, j] = z[f"box_{v}"][i]
+                    cnt[v][k, j] = z[f"n_{v}"][i]
                 else:
                     stale.add(key)
     if missing:
         print(f"⚠ faltan {len(missing)} meses: {', '.join(missing[:12])}{' …' if len(missing) > 12 else ''}")
+    for v, ms in wrong.items():
+        if ms:
+            print(f"⚠ {v}: {len(ms)} meses sin {ALL_VARS[v][0]} en la caché (versión anterior o MERRA-2 pendiente); "
+                  f"quedan vacíos. Corre «fetch» para reprocesarlos.")
     if stale:
         print(f"⚠ cajas sin procesar en algunos meses (cambió events.yaml): {sorted(stale)}. Corre «fetch» de nuevo.")
 

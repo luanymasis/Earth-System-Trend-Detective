@@ -133,3 +133,26 @@ def test_local_and_aggregate(tmp_path, monkeypatch):
     pr = json.loads((tmp_path / "out" / "series_gldas_precip.json").read_text(encoding="utf-8"))["regions"]["rondonia:E"]["y"][(2016 - 2001) * 12 + 1]
     assert pr == pytest.approx(3e-5 * 86400 * calendar.monthrange(2016, 2)[1], rel=1e-5)
     assert len((tmp_path / "SOURCES.csv").read_text(encoding="utf-8").strip().splitlines()) == 5  # encabezado + 4
+
+
+def test_legacy_cache_not_relabeled(tmp_path, monkeypatch):
+    """Una caché antigua (Rainf_f_tavg, AvgSurfT como gldas_skint) no se exporta como Rainf_tavg / Tair_f_inst."""
+    import json
+    monkeypatch.setattr(gldas, "MONTHLY", tmp_path / "monthly")
+    monkeypatch.setattr(gldas, "OUT", tmp_path / "out")
+    monkeypatch.setattr(common, "SOURCES", tmp_path / "SOURCES.csv")
+    regs = common.regions(common.load_events())
+    n = len(regs)
+    gldas.MONTHLY.mkdir()
+    arrs = {}
+    for vid in ("sm", "gldas_precip", "gldas_skint"):
+        arrs[f"box_{vid}"] = np.ones(n); arrs[f"n_{vid}"] = np.ones(n, dtype=int)
+        arrs[f"grid_{vid}"] = np.ones((180, 360), dtype=np.float32)
+    meta = {"regions": list(regs), "boxes": regs, "units_in": {}, "source": "old", "processed": "x"}
+    np.savez_compressed(gldas.MONTHLY / "201605.npz", meta=json.dumps(meta), **arrs)
+    assert not gldas.month_done(2016, 5, regs, require_tree=False)
+    gldas.main(["aggregate"])
+    k = (2016 - 2001) * 12 + 4
+    y = lambda v: json.loads((tmp_path / "out" / f"series_{v}.json").read_text(encoding="utf-8"))["regions"]["rondonia:E"]["y"][k]
+    assert y("sm") == 1
+    assert y("gldas_precip") is None and y("lst") is None
