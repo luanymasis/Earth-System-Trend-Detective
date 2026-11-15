@@ -209,11 +209,43 @@ def source_vars(meta: dict) -> dict:
     return meta.get("source_vars") or LEGACY_SOURCE_VARS
 
 
+def empty_res() -> dict:
+    return {"boxes": {}, "counts": {}, "grids": {}, "units_in": {}}
+
+
+def merge_res(res: dict, part: dict) -> dict:
+    """Agrega las variables de `part` a `res` sin borrar las que ya tenía."""
+    for k in ("boxes", "counts", "grids", "units_in"):
+        res[k].update(part[k])
+    return res
+
+
+def load_month(y: int, m: int, regs: dict) -> tuple[dict, str]:
+    """Variables ya válidas de un mes en caché (capa correcta y mismas cajas), para no volver a descargarlas."""
+    res = empty_res()
+    p = MONTHLY / f"{y}{m:02d}.npz"
+    if not p.exists():
+        return res, ""
+    with np.load(p) as z:
+        meta = json.loads(str(z["meta"]))
+        if list(meta["regions"]) != list(regs) or any(meta["boxes"].get(k) != b for k, b in regs.items()):
+            return res, ""
+        src = source_vars(meta)
+        for vid, (name, _, _) in ALL_VARS.items():
+            if src.get(vid) == name and f"grid_{vid}" in z:
+                res["boxes"][vid] = z[f"box_{vid}"]
+                res["counts"][vid] = z[f"n_{vid}"]
+                res["grids"][vid] = z[f"grid_{vid}"]
+                res["units_in"][vid] = meta["units_in"].get(vid, "")
+    return res, meta.get("source", "")
+
+
 def month_done(y: int, m: int, regs: dict, require_tree: bool = True) -> bool:
     p = MONTHLY / f"{y}{m:02d}.npz"
     if not p.exists():
         return False
-    meta = json.loads(str(np.load(p)["meta"]))
+    with np.load(p) as z:
+        meta = json.loads(str(z["meta"]))
     boxes_ok = all(meta["boxes"].get(k) == b for k, b in regs.items())
     src = source_vars(meta)
     gldas_ok = all(src.get(vid) == name for vid, (name, _, _) in VARS.items())
@@ -335,28 +367,34 @@ def cmd_fetch(args) -> None:
     def job(y, m):
         dest = TMP / f"{y}{m:02d}.nc4"
         merra_dest = TMP / f"merra_{y}{m:02d}.nc4"
-        gl_url = url_for(y, m, args.via)
-        download(s, gl_url, dest)
         with lock:
-            try:
-                res = process_file(dest, y, m, regs)
-            finally:
-                dest.unlink(missing_ok=True)  # el crudo no se guarda (§1, regla de volumen)
-        try:
-            merra_url = download_merra(s, y, m, merra_dest)
-        except RuntimeError as e:
-            # GLDAS variables remain usable while a MERRA stream/auth issue is retried
-            # by the next invocation; month_done() will require tree before completion.
-            print(f"  ⚠ {y}-{m:02d}: MERRA-2 omitido; GLDAS sí procesado: {e}")
+            res, old_source = load_month(y, m, regs)  # lo que ya es válido no se vuelve a descargar
+        sources = [x for x in old_source.split("|") if x and not x.startswith("local:")]
+        if not all(v in res["boxes"] for v in VARS):
+            gl_url = url_for(y, m, args.via)
+            download(s, gl_url, dest)
             with lock:
-                save_month(y, m, res, regs, gl_url.split("?")[0])
-        else:
+                try:
+                    merge_res(res, process_file(dest, y, m, regs))
+                finally:
+                    dest.unlink(missing_ok=True)  # el crudo no se guarda (§1, regla de volumen)
+            sources = [x for x in sources if "GLDAS" not in x] + [gl_url.split("?")[0]]
+        if "tree" not in res["boxes"]:
             try:
-                with lock:
-                    res.update(process_merra_file(merra_dest, regs))
-                    save_month(y, m, res, regs, f"{gl_url.split('?')[0]}|{merra_url}")
-            finally:
-                merra_dest.unlink(missing_ok=True)
+                merra_url = download_merra(s, y, m, merra_dest)
+            except RuntimeError as e:
+                # GLDAS variables remain usable while a MERRA stream/auth issue is retried
+                # by the next invocation; month_done() will require tree before completion.
+                print(f"  ⚠ {y}-{m:02d}: MERRA-2 omitido; GLDAS sí procesado: {e}")
+            else:
+                try:
+                    with lock:
+                        merge_res(res, process_merra_file(merra_dest, regs))
+                finally:
+                    merra_dest.unlink(missing_ok=True)
+                sources = [x for x in sources if "MERRA" not in x] + [merra_url]
+        with lock:
+            save_month(y, m, res, regs, "|".join(sources))
         return y, m
 
     fails = []
@@ -387,7 +425,9 @@ def cmd_local(args) -> None:
         y, m = int(ym[:4]), int(ym[4:])
         if not args.force and month_done(y, m, regs, require_tree=False):
             continue
-        save_month(y, m, process_file(p, y, m, regs), regs, f"local:{p.name}")
+        res, old_source = load_month(y, m, regs)  # conserva tree (MERRA-2) si ya estaba
+        merra = [x for x in old_source.split("|") if "MERRA" in x] if "tree" in res["boxes"] else []
+        save_month(y, m, merge_res(res, process_file(p, y, m, regs)), regs, "|".join([f"local:{p.name}", *merra]))
         print(f"{y}-{m:02d} listo")
 
 

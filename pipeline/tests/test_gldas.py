@@ -156,3 +156,37 @@ def test_legacy_cache_not_relabeled(tmp_path, monkeypatch):
     y = lambda v: json.loads((tmp_path / "out" / f"series_{v}.json").read_text(encoding="utf-8"))["regions"]["rondonia:E"]["y"][k]
     assert y("sm") == 1
     assert y("gldas_precip") is None and y("lst") is None
+
+
+def test_fetch_keeps_gldas_and_reuses_tree(tmp_path, monkeypatch):
+    """fetch guarda GLDAS + MERRA-2 juntos, y si el mes ya tiene tree no vuelve a pedir MERRA-2."""
+    import json
+    monkeypatch.setattr(gldas, "MONTHLY", tmp_path / "monthly")
+    monkeypatch.setattr(gldas, "TMP", tmp_path / "tmp")
+    monkeypatch.setattr(gldas, "session", lambda: None)
+    calls = []
+
+    def fake_download(s, url, dest, tries=4):
+        calls.append("gldas"); fake_gldas(dest)
+
+    def fake_download_merra(s, y, m, dest):
+        calls.append("merra"); fake_merra(dest); return "https://x/MERRA2_400.nc4"
+
+    monkeypatch.setattr(gldas, "download", fake_download)
+    monkeypatch.setattr(gldas, "download_merra", fake_download_merra)
+    regs = common.regions(common.load_events())
+    gldas.main(["fetch", "--only", "2016-05", "--workers", "1"])
+    with np.load(tmp_path / "monthly" / "201605.npz") as z:
+        assert {"grid_sm", "grid_gldas_precip", "grid_lst", "grid_tree"} <= set(z.files)
+    assert gldas.month_done(2016, 5, regs) and calls == ["gldas", "merra"]
+
+    # Mes con solo tree (lo que dejaba el error anterior): se reprocesa GLDAS y se conserva tree.
+    res, _ = gldas.load_month(2016, 5, regs)
+    only_tree = {k: {"tree": v["tree"]} for k, v in res.items()}
+    gldas.save_month(2016, 5, only_tree, regs, "https://x/MERRA2_400.nc4")
+    calls.clear()
+    gldas.main(["fetch", "--only", "2016-05", "--workers", "1"])
+    assert calls == ["gldas"] and gldas.month_done(2016, 5, regs)
+    with np.load(tmp_path / "monthly" / "201605.npz") as z:
+        meta = json.loads(str(z["meta"]))
+    assert "MERRA2" in meta["source"] and "GLDAS" in meta["source"]
