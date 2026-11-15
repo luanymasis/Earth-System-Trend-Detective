@@ -72,6 +72,14 @@ def test_process_file(tmp_path):
     assert np.isnan(g[100, 185])              # 5°E, «océano»
 
 
+def test_ice_cells_masked(tmp_path):
+    p = tmp_path / "GLDAS_NOAH025_M.A201605.021.nc4"
+    fake_gldas(p, sm_kgm2=100.0)  # hielo: 100 kg/m² en la capa de 10 cm
+    res = gldas.process_file(p, 2016, 5, {"a:E": common.box_around(-10.8, -62.8, 2.2)})
+    assert np.isnan(res["grids"]["sm"]).all() and res["counts"]["sm"][0] == 0
+    assert res["counts"]["gldas_skint"][0] > 0  # las otras variables no se tocan
+
+
 def test_annual_mean_min_months():
     a = np.ones((common.NT * 12, 2))
     a[:3, 0] = np.nan          # 2001 con 9 meses en la columna 0

@@ -57,6 +57,7 @@ VARS = {
     "gldas_skint": ("AvgSurfT_inst", "verify_lst", "°C"),
 }
 MIN_MONTHS = 10          # meses válidos para un año (§3.3)
+ICE_SM = 0.999           # m³/m³: valor fijo de GLDAS en celdas de hielo glaciar
 MIN_CELLS_1DEG = 8       # celdas de 0.25° válidas (de 16) para una celda de 1°
 GRID1 = {"res": 1, "lat0": 89.5, "lon0": -179.5, "nx": 360, "ny": 180}
 
@@ -122,6 +123,10 @@ def process_file(path: Path, y: int, m: int, regs: dict[str, dict]) -> dict:
             if dims[0] != "lat":  # por si viene [lon, lat]
                 a = a.T
             a = convert(name, v.units, a, y, m)
+            if vid == "sm":
+                # Hielo glaciar (Groenlandia, Ártico): GLDAS fija la humedad en 100 kg/m² (= 1 m³/m³).
+                # No es suelo: se enmascara antes de promediar cajas y celdas de 1°.
+                a[a >= ICE_SM] = np.nan
             out["units_in"][vid] = v.units
             out["grids"][vid] = to_1deg(lat, lon, a)
             bx, cn = zip(*(box_mean(lat, lon, a, b) for b in regs.values())) if regs else ((), ())
