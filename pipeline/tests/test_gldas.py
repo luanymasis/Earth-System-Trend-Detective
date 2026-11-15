@@ -25,7 +25,7 @@ def fake_gldas(path: Path, sm_kgm2: float = 25.0, rain: float = 3e-5, tair: floa
         ds.createVariable("lon", "f4", ("lon",))[:] = LON
         ds.createVariable("time", "f8", ("time",))[:] = [0]
         ocean = (LON >= ocean_lon[0]) & (LON < ocean_lon[1])
-        for name, val, units in [("SoilMoi0_10cm_inst", sm_kgm2, "kg m-2"), ("Rainf_f_tavg", rain, "kg m-2 s-1"),
+        for name, val, units in [("SoilMoi0_10cm_inst", sm_kgm2, "kg m-2"), ("Rainf_tavg", rain, "kg m-2 s-1"),
                                  ("Tair_f_inst", tair, "K")]:
             v = ds.createVariable(name, "f4", ("time", "lat", "lon"), fill_value=-9999.0)
             v.units = units
@@ -34,14 +34,28 @@ def fake_gldas(path: Path, sm_kgm2: float = 25.0, rain: float = 3e-5, tair: floa
             v[:] = a
 
 
+def fake_merra(path: Path, value: float = 0.25):
+    with netCDF4.Dataset(path, "w") as ds:
+        ds.createDimension("time", 1); ds.createDimension("lat", 3); ds.createDimension("lon", 3)
+        ds.createVariable("lat", "f4", ("lat",))[:] = [-1, 0, 1]
+        ds.createVariable("lon", "f4", ("lon",))[:] = [-1, 0, 1]
+        ds.createVariable("time", "f8", ("time",))[:] = [0]
+        v = ds.createVariable("GRN", "f4", ("time", "lat", "lon"), fill_value=-9999.0)
+        v.units = "1"
+        v[:] = value
+
+
 def test_convert_units():
     a = np.array([25.0])
     assert gldas.convert("SoilMoi0_10cm_inst", "kg m-2", a, 2016, 5)[0] == pytest.approx(0.25)
     assert gldas.convert("SoilMoi10_40cm_inst", "kg m-2", np.array([90.0]), 2016, 5)[0] == pytest.approx(0.30)
-    assert gldas.convert("Rainf_f_tavg", "kg m-2 s-1", np.array([1e-5]), 2016, 2)[0] == pytest.approx(1e-5 * 86400 * 29)
+    assert gldas.convert("Rainf_tavg", "kg m-2 s-1", np.array([1e-5]), 2016, 2)[0] == pytest.approx(1e-5 * 86400 * 29)
     assert gldas.convert("Tair_f_inst", "K", np.array([273.15]), 2016, 5)[0] == pytest.approx(0)
     with pytest.raises(ValueError):
         gldas.convert("SoilMoi0_10cm_inst", "m3 m-3", a, 2016, 5)
+    assert gldas.convert_tree("1", np.array([0.25]))[0] == pytest.approx(25)
+    with pytest.raises(ValueError):
+        gldas.convert_tree("1", np.array([1.1]))
 
 
 def test_box_mean_weights_and_antimeridian():
@@ -56,11 +70,12 @@ def test_box_mean_weights_and_antimeridian():
 def test_process_file(tmp_path):
     p = tmp_path / "GLDAS_NOAH025_M.A201605.021.nc4"
     fake_gldas(p)
+    assert "Rainf_tavg" in gldas.url_for(2016, 5, "opendap")
     regs = {"a:E": common.box_around(-10.8, -62.8, 2.2), "b:E": common.box_around(5, 20, 1)}
     res = gldas.process_file(p, 2016, 5, regs)
     assert res["boxes"]["sm"][0] == pytest.approx(0.25)
     assert res["boxes"]["gldas_precip"][0] == pytest.approx(3e-5 * 86400 * 31, rel=1e-5)
-    assert res["boxes"]["gldas_skint"][0] == pytest.approx(300 - 273.15, abs=1e-4)
+    assert res["boxes"]["lst"][0] == pytest.approx(300 - 273.15, abs=1e-4)
     assert res["counts"]["sm"][0] > 100
     # la caja b cae en parte sobre el «océano» (0–20°E): solo cuenta la parte al este de 20°E
     assert 0 < res["counts"]["sm"][1] < 8 * 9
@@ -72,12 +87,23 @@ def test_process_file(tmp_path):
     assert np.isnan(g[100, 185])              # 5°E, «océano»
 
 
+def test_process_merra_file(tmp_path):
+    p = tmp_path / "MERRA2_400.tavgM_2d_lnd_Nx.201605.nc4"
+    fake_merra(p)
+    assert gldas.merra_url_for(2001, 2).endswith("/2001/MERRA2_300.tavgM_2d_lnd_Nx.200102.nc4")
+    assert gldas.merra_url_for(2016, 5).endswith("/2016/MERRA2_400.tavgM_2d_lnd_Nx.201605.nc4")
+    assert gldas.merra_urls_for(2020, 9)[1].endswith("/2020/MERRA2_401.tavgM_2d_lnd_Nx.202009.nc4")
+    res = gldas.process_merra_file(p, {"a:E": common.box_around(0, 0, 1)})
+    assert res["boxes"]["tree"][0] == pytest.approx(25)
+    assert res["counts"]["tree"][0] == 9
+
+
 def test_ice_cells_masked(tmp_path):
     p = tmp_path / "GLDAS_NOAH025_M.A201605.021.nc4"
     fake_gldas(p, sm_kgm2=100.0)  # hielo: 100 kg/m² en la capa de 10 cm
     res = gldas.process_file(p, 2016, 5, {"a:E": common.box_around(-10.8, -62.8, 2.2)})
     assert np.isnan(res["grids"]["sm"]).all() and res["counts"]["sm"][0] == 0
-    assert res["counts"]["gldas_skint"][0] > 0  # las otras variables no se tocan
+    assert res["counts"]["lst"][0] > 0  # las otras variables no se tocan
 
 
 def test_annual_mean_min_months():
@@ -106,4 +132,4 @@ def test_local_and_aggregate(tmp_path, monkeypatch):
     assert z["data"].shape == (common.NM, 180, 360)
     pr = json.loads((tmp_path / "out" / "series_gldas_precip.json").read_text(encoding="utf-8"))["regions"]["rondonia:E"]["y"][(2016 - 2001) * 12 + 1]
     assert pr == pytest.approx(3e-5 * 86400 * calendar.monthrange(2016, 2)[1], rel=1e-5)
-    assert len((tmp_path / "SOURCES.csv").read_text(encoding="utf-8").strip().splitlines()) == 4  # encabezado + 3
+    assert len((tmp_path / "SOURCES.csv").read_text(encoding="utf-8").strip().splitlines()) == 5  # encabezado + 4

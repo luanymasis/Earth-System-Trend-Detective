@@ -24,12 +24,12 @@ MISSING = -32768
 
 # Metadata of the variables in the web contract.
 VARS = [
-    {"id": "tree", "short": "Vegetación", "name": "Cobertura arbórea", "noun": "la cobertura arbórea", "units": "%", "unitsCh": "puntos",
-     "rel": False, "minsd": 0.6, "palette": "VEGDIV", "scale": 14, "layer": "tiles", "q": 0.01,
-     "product": "MODIS VCF (MOD44B), vía AppEEARS", "source": {"tool": "AppEEARS", "product": "MOD44B.061", "layer": "Percent_Tree_Cover"}},
-    {"id": "lst", "short": "Temperatura", "name": "Temperatura de superficie (día)", "noun": "la temperatura de superficie", "units": "°C", "unitsCh": "°C",
-     "rel": False, "minsd": 0.12, "palette": "RdBu", "scale": 1.5, "layer": "tiles", "q": 0.01,
-     "product": "MODIS LST (MOD11), vía AppEEARS", "source": {"tool": "AppEEARS", "product": "MOD11B3.061", "layer": "LST_Day_6km"}},
+    {"id": "tree", "short": "Vegetación", "name": "Fracción de verdor", "noun": "la fracción de verdor", "units": "%", "unitsCh": "puntos",
+     "rel": False, "minsd": 0.6, "palette": "VEGDIV", "scale": 14, "layer": "global", "q": 0.01,
+     "product": "MERRA-2, NASA GES DISC", "source": {"tool": "GES DISC", "product": "M2TMNXLND.5.12.4", "layer": "GRN"}},
+    {"id": "lst", "short": "Temperatura", "name": "Temperatura del aire", "noun": "la temperatura del aire", "units": "°C", "unitsCh": "°C",
+     "rel": False, "minsd": 0.12, "palette": "RdBu", "scale": 1.5, "layer": "global", "q": 0.01,
+     "product": "GLDAS Noah 2.1, NASA GES DISC", "source": {"tool": "GES DISC", "product": "GLDAS_NOAH025_M.2.1", "layer": "Tair_f_inst"}},
     {"id": "sm", "short": "Humedad", "name": "Humedad del suelo", "noun": "la humedad del suelo", "units": "m³/m³", "unitsCh": "m³/m³",
      "rel": False, "minsd": 0.004, "palette": "BrBG", "scale": 0.03, "layer": "global", "q": 0.0001,
      "product": "GLDAS Noah 2.1 (0–10 cm), NASA GES DISC", "source": {"tool": "GES DISC", "product": "GLDAS_NOAH025_M.2.1", "layer": "SoilMoi0_10cm_inst"}},
@@ -73,7 +73,14 @@ def load_real() -> tuple[dict, dict]:
                     region["y"] = monthly_values(region["y"], s.get("years"))
             else:
                 sys.exit(f"{p.name}: fechas distintas del período mensual {DATES[0]}–{DATES[-1]}")
-        (prim if s["role"] == "primary" else ver)[s["var"]] = s
+        if s["role"] == "primary":
+            prim[s["var"]] = s
+        else:
+            ver[s["var"]] = s
+            # GLDAS precipitation is also the globe fallback when the
+            # dedicated primary precipitation source is unavailable.
+            if s["var"] == "gldas_precip" and "precip" not in prim:
+                prim["precip"] = s
     return prim, ver
 
 
@@ -148,7 +155,8 @@ def main(argv=None) -> None:
         vid = v["id"]
         if v["layer"] != "global":
             continue
-        gp = OUT / f"grid_{vid}.npz"
+        source_id = prim.get(vid, {}).get("var", vid)
+        gp = OUT / f"grid_{source_id}.npz"
         if vid in prim and gp.exists():
             z = np.load(gp)
             grid = json.loads(str(z["grid"]))
