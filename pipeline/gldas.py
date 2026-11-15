@@ -57,7 +57,7 @@ VARS = {
     "gldas_skint": ("AvgSurfT_inst", "verify_lst", "°C"),
 }
 MIN_MONTHS = 10          # meses válidos para un año (§3.3)
-ICE_SM = 0.999           # m³/m³: valor fijo de GLDAS en celdas de hielo glaciar
+ICE_SM = 0.55            # m³/m³: por encima no es suelo (hielo glaciar: GLDAS llega a 1; la porosidad de Noah ≤ ~0.47)
 MIN_CELLS_1DEG = 8       # celdas de 0.25° válidas (de 16) para una celda de 1°
 GRID1 = {"res": 1, "lat0": 89.5, "lon0": -179.5, "nx": 360, "ny": 180}
 
@@ -124,8 +124,8 @@ def process_file(path: Path, y: int, m: int, regs: dict[str, dict]) -> dict:
                 a = a.T
             a = convert(name, v.units, a, y, m)
             if vid == "sm":
-                # Hielo glaciar (Groenlandia, Ártico): GLDAS fija la humedad en 100 kg/m² (= 1 m³/m³).
-                # No es suelo: se enmascara antes de promediar cajas y celdas de 1°.
+                # Hielo glaciar (Groenlandia, Ártico): GLDAS da 100 kg/m² (= 1 m³/m³) en el hielo y valores
+                # de 0,6–0,9 en sus bordes. No es suelo: se enmascara antes de promediar cajas y celdas de 1°.
                 a[a >= ICE_SM] = np.nan
             out["units_in"][vid] = v.units
             out["grids"][vid] = to_1deg(lat, lon, a)
@@ -133,7 +133,7 @@ def process_file(path: Path, y: int, m: int, regs: dict[str, dict]) -> dict:
             out["boxes"][vid] = np.array(bx, dtype=float)
             out["counts"][vid] = np.array(cn, dtype=int)
     sm = out["grids"]["sm"]
-    if np.isfinite(sm).any() and (np.nanmin(sm) < 0 or np.nanmax(sm) > 0.7):
+    if np.isfinite(sm).any() and (np.nanmin(sm) < 0 or np.nanmax(sm) > ICE_SM):
         print(f"  ⚠ {y}-{m:02d}: humedad fuera de rango físico ({np.nanmin(sm):.3f}–{np.nanmax(sm):.3f})")
     return out
 
